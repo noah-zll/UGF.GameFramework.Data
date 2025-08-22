@@ -1,0 +1,22 @@
+{
+  "name": "com.ugf.gameframework.data",
+  "version": "1.0.0",
+  "displayName": "UGF GameFramework Data Tools",
+  "description": "Excel to binary data table tools for GameFramework",
+  "unity": "2021.3",
+  "unityRelease": "0f1",
+  "dependencies": {
+    "com.ugf.gameframework": "1.0.0"
+  },
+  "keywords": [
+    "gameframework",
+    "datatable",
+    "excel",
+    "tools"
+  ],
+  "author": {
+    "name": "UGF",
+    "email": "support@ugf.com",
+    "url": "https://github.com/ugf"
+  }
+}

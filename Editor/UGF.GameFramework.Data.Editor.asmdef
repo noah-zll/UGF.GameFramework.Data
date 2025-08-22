@@ -1,0 +1,21 @@
+{
+    "name": "UGF.GameFramework.Data.Editor",
+    "rootNamespace": "UGF.GameFramework.Data.Editor",
+    "references": [
+        "GUID:2665a8d13d1b3f18800f46e256720795",
+        "GUID:651f88c77de36e048afbd8213dff8107"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [
+        "EPPlus.dll"
+    ],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
