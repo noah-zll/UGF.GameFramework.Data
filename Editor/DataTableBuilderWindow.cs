@@ -173,6 +173,10 @@ namespace UGF.GameFramework.Data.Editor
         private bool m_ShowPreview = false;
         private bool m_ShowBuildResults = false;
         
+        // 标签页状态
+        private int m_SelectedTabIndex = 0;
+        private readonly string[] m_TabNames = { "数据构建", "类型定义" };
+        
         // 构建结果
         private List<BuildResultInfo> m_BuildResults = new List<BuildResultInfo>();
         private Vector2 m_BuildResultsScrollPosition;
@@ -763,11 +767,21 @@ namespace UGF.GameFramework.Data.Editor
             
             DrawHeader();
             DrawSettingsSection();
-            DrawExcelListSection();
-            DrawSingleFileSection();
-            DrawTypeDefinitionSection();
-            DrawPreviewSection();
-            // DrawBuildSection();
+            
+            // 绘制标签页选择器
+            DrawTabSelector();
+            
+            // 根据选中的标签页绘制不同内容
+            switch (m_SelectedTabIndex)
+            {
+                case 0: // 数据构建
+                    DrawDataBuildTab();
+                    break;
+                case 1: // 类型定义
+                    DrawTypeDefinitionTab();
+                    break;
+            }
+            
             DrawBuildResultsSection();
             
             EditorGUILayout.EndScrollView();
@@ -804,7 +818,84 @@ namespace UGF.GameFramework.Data.Editor
             var rect = EditorGUILayout.GetControlRect(false, 1);
             EditorGUI.DrawRect(rect, new Color(0.5f, 0.5f, 0.5f, 0.5f));
             
-            EditorGUILayout.Space(10);
+            EditorGUILayout.Space(20);
+        }
+        
+        /// <summary>
+        /// 绘制标签页选择器
+        /// </summary>
+        private void DrawTabSelector()
+        {
+            EditorGUILayout.Space(15);
+            
+            // 创建标签页样式
+            var tabStyle = new GUIStyle(GUI.skin.button)
+            {
+                fontSize = 14,
+                fontStyle = FontStyle.Bold,
+                alignment = TextAnchor.MiddleCenter,
+                padding = new RectOffset(20, 20, 8, 8),
+                margin = new RectOffset(2, 2, 0, 0),
+            };
+            
+            var selectedTabStyle = new GUIStyle(tabStyle)
+            {
+                normal = { 
+                    textColor = EditorGUIUtility.isProSkin ? Color.white : Color.black
+                },
+                fontStyle = FontStyle.Bold
+            };
+            
+            // 未选中标签页样式
+            tabStyle.normal.textColor = EditorGUIUtility.isProSkin ? Color.white : Color.black;
+            
+            EditorGUILayout.BeginHorizontal();
+            GUILayout.FlexibleSpace();
+            
+            // 保存原始背景色
+            var originalBackgroundColor = GUI.backgroundColor;
+            
+            for (int i = 0; i < m_TabNames.Length; i++)
+            {
+                // 设置选中标签页的背景色
+                if (i == m_SelectedTabIndex)
+                {
+                    GUI.backgroundColor = originalBackgroundColor;
+                }
+                else
+                {
+                    GUI.backgroundColor = EditorGUIUtility.isProSkin ? new Color(0.8f, 0.8f, 0.8f, 1f) : new Color(0.9f, 0.9f, 0.9f, 1f); 
+                }
+                
+                var style = (i == m_SelectedTabIndex) ? selectedTabStyle : tabStyle;
+                if (GUILayout.Button(m_TabNames[i], style, GUILayout.Width(150), GUILayout.Height(40)))
+                {
+                    m_SelectedTabIndex = i;
+                }
+            }
+            
+            // 恢复原始背景色
+            GUI.backgroundColor = originalBackgroundColor;
+            
+            GUILayout.FlexibleSpace();
+            EditorGUILayout.EndHorizontal();
+            
+            EditorGUILayout.Space(15);
+        }
+        
+        /// <summary>
+        /// 创建纯色纹理
+        /// </summary>
+        private Texture2D MakeTexture(int width, int height, Color color)
+        {
+            Color[] pix = new Color[width * height];
+            for (int i = 0; i < pix.Length; i++)
+                pix[i] = color;
+            
+            Texture2D result = new Texture2D(width, height);
+            result.SetPixels(pix);
+            result.Apply();
+            return result;
         }
         
         private void DrawSettingsSection()
@@ -1375,7 +1466,6 @@ namespace UGF.GameFramework.Data.Editor
             }
             
             EditorGUILayout.EndVertical();
-            EditorGUILayout.Space(10);
         }
         
         private void ParseSingleExcelFile()
@@ -1436,12 +1526,15 @@ namespace UGF.GameFramework.Data.Editor
         /// </summary>
         private void DrawTypeDefinitionSection()
         {
-            m_ShowTypeDefinitionSection = EditorGUILayout.Foldout(m_ShowTypeDefinitionSection, "类型定义表操作", true, EditorStyles.foldoutHeader);
-            
-            if (!m_ShowTypeDefinitionSection)
-                return;
-                
             EditorGUILayout.BeginVertical("box");
+            
+            var headerStyle = new GUIStyle(EditorStyles.boldLabel)
+            {
+                fontSize = 14
+            };
+            EditorGUILayout.LabelField("🔧 类型定义表操作", headerStyle);
+            
+            EditorGUILayout.Space(5);
             
             // 类型定义文件选择
             EditorGUILayout.BeginHorizontal();
@@ -1750,7 +1843,25 @@ namespace UGF.GameFramework.Data.Editor
         }
         
         /// <summary>
-        /// 绘制预览区域
+        /// 绘制数据构建标签页
+        /// </summary>
+        private void DrawDataBuildTab()
+        {
+            DrawExcelListSection();
+            DrawSingleFileSection();
+            DrawPreviewSection();
+        }
+        
+        /// <summary>
+        /// 绘制类型定义标签页
+        /// </summary>
+        private void DrawTypeDefinitionTab()
+        {
+            DrawTypeDefinitionSection();
+        }
+        
+        /// <summary>
+        /// 绘制构建结果区域
         /// </summary>
         private void DrawPreviewSection()
         {
