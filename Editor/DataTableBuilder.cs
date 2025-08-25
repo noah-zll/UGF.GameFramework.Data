@@ -337,7 +337,7 @@ namespace UGF.GameFramework.Data.Editor
         private static string GenerateCodeFile(ExcelTableInfo tableInfo, BuildConfig config)
         {
             var absoluteCodePath = Path.GetFullPath(config.CodeOutputPath);
-            var className = $"{tableInfo.TableName}DataRow";
+            var className = string.IsNullOrEmpty(tableInfo.ClassName) ? $"{tableInfo.TableName}DataRow" : $"{tableInfo.ClassName}Row";
             var filePath = Path.Combine(absoluteCodePath, $"{className}.cs");
             
             // 检查文件是否已存在
@@ -356,7 +356,7 @@ namespace UGF.GameFramework.Data.Editor
         private static string GenerateDataFile(ExcelTableInfo tableInfo, BuildConfig config)
         {
             var absoluteDataPath = Path.GetFullPath(config.DataOutputPath);
-            var fileName = $"{tableInfo.TableName}.bytes";
+            var fileName = string.IsNullOrEmpty(tableInfo.ClassName) ? $"{tableInfo.TableName}.bytes" : $"{tableInfo.ClassName}.bytes";
             var filePath = Path.Combine(absoluteDataPath, fileName);
             
             // 检查文件是否已存在
@@ -365,7 +365,27 @@ namespace UGF.GameFramework.Data.Editor
                 throw new InvalidOperationException($"数据文件已存在且不允许覆盖: {filePath}");
             }
             
-            BinaryDataSerializer.SerializeToBinary(tableInfo, absoluteDataPath);
+            try
+            {
+                BinaryDataSerializer.SerializeToBinary(tableInfo, absoluteDataPath);
+                
+                // 验证生成的文件
+                if (!File.Exists(filePath))
+                {
+                    throw new InvalidOperationException($"二进制文件生成失败: {filePath}");
+                }
+                
+                // 验证文件格式
+                if (!BinaryDataSerializer.ValidateBinaryFile(filePath))
+                {
+                    throw new InvalidOperationException($"生成的二进制文件格式无效: {filePath}");
+                }
+            }
+            catch (Exception ex)
+            {
+                throw new InvalidOperationException($"生成二进制数据文件时发生错误: {ex.Message}", ex);
+            }
+            
             return filePath;
         }
         

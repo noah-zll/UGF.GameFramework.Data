@@ -172,6 +172,12 @@ namespace UGF.GameFramework.Data.Editor
         {
             try
             {
+                // 检查是否为枚举类型
+                if (SupportedDataTypes.IsEnumType(type))
+                {
+                    return reader.ReadInt32(); // 枚举值作为int读取
+                }
+                
                 switch (type.ToLower())
                 {
                     case SupportedDataTypes.Int:
@@ -206,6 +212,12 @@ namespace UGF.GameFramework.Data.Editor
         /// </summary>
         private static object GetDefaultValue(string type)
         {
+            // 检查是否为枚举类型
+            if (SupportedDataTypes.IsEnumType(type))
+            {
+                return 0; // 枚举默认值为0
+            }
+            
             switch (type.ToLower())
             {
                 case SupportedDataTypes.Int:

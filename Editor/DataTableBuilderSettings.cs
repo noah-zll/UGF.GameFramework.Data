@@ -34,6 +34,10 @@ namespace UGF.GameFramework.Data.Editor
         [SerializeField, Tooltip("选中的Excel文件列表")]
         private List<string> m_SelectedExcelFiles = new List<string>();
         
+        [Header("类型定义配置")]
+        [SerializeField, Tooltip("类型定义文件路径")]
+        private string m_TypeDefinitionFilePath = "";
+        
         /// <summary>
         /// Excel文件目录
         /// </summary>
@@ -98,6 +102,15 @@ namespace UGF.GameFramework.Data.Editor
         }
         
         /// <summary>
+        /// 类型定义文件路径
+        /// </summary>
+        public string TypeDefinitionFilePath
+        {
+            get => m_TypeDefinitionFilePath;
+            set => m_TypeDefinitionFilePath = value;
+        }
+        
+        /// <summary>
         /// 验证设置
         /// </summary>
         public void ValidateSettings()
@@ -116,6 +129,8 @@ namespace UGF.GameFramework.Data.Editor
                 
             if (m_SelectedExcelFiles == null)
                 m_SelectedExcelFiles = new List<string>();
+                
+            // TypeDefinitionFilePath可以为空，不需要默认值
         }
         
         /// <summary>

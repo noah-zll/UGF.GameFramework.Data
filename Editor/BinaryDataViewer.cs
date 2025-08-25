@@ -149,14 +149,6 @@ namespace UGF.GameFramework.Data.Editor
             EditorGUILayout.Space(10);
         }
         
-
-        
-
-        
-
-        
-
-        
         /// <summary>
         /// 加载数据表文件
         /// </summary>
@@ -171,7 +163,21 @@ namespace UGF.GameFramework.Data.Editor
             try
             {
                 selectedFilePath = filePath;
+                
+                // 首先验证文件格式
+                if (!BinaryDataSerializer.ValidateBinaryFile(filePath))
+                {
+                    Debug.LogError($"文件格式验证失败: {filePath}");
+                    Debug.LogError("文件可能不是有效的二进制数据表文件或版本不匹配");
+                    return;
+                }
+                
+                // 输出文件信息用于调试
+                var fileInfo = BinaryDataSerializer.ReadBinaryFileInfo(filePath);
+                Debug.Log($"二进制文件信息:\n{fileInfo}");
+                
                 var fileData = File.ReadAllBytes(filePath);
+                Debug.Log($"文件大小: {fileData.Length} 字节");
                 
                 // 反序列化数据表
                 dataTableInfo = BinaryDataDeserializer.DeserializeDataTable(fileData);
@@ -191,12 +197,14 @@ namespace UGF.GameFramework.Data.Editor
                 }
                 else
                 {
-                    Debug.LogError("无法解析数据表文件");
+                    Debug.LogError("无法解析数据表文件 - 反序列化失败");
+                    Debug.LogError("请检查文件是否损坏或格式是否正确");
                 }
             }
             catch (Exception ex)
             {
                 Debug.LogError($"加载数据表文件时发生错误: {ex.Message}");
+                Debug.LogError($"堆栈跟踪: {ex.StackTrace}");
                 dataTableInfo = null;
             }
         }

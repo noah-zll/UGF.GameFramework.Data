@@ -344,9 +344,10 @@ namespace UGF.GameFramework.Data.Editor
             
             GUILayout.FlexibleSpace();
             
-            // 文件统计
-            var selectedCount = m_ExcelFileSelection.Count(kvp => kvp.Value);
-            EditorGUILayout.LabelField($"已选择: {selectedCount}/{m_ExcelFiles.Count}", EditorStyles.toolbarTextField, GUILayout.Width(100));
+            // 文件统计 - 只统计非类型定义文件
+            var selectedCount = m_ExcelFiles.Count(f => f.IsSelected && !IsTypeDefinitionFile(f.FileName));
+            var totalNonTypeDefFiles = m_ExcelFiles.Count(f => !IsTypeDefinitionFile(f.FileName));
+            EditorGUILayout.LabelField($"已选择: {selectedCount}/{totalNonTypeDefFiles}", EditorStyles.toolbarTextField, GUILayout.Width(100));
             
             // 构建结果统计
             if (m_BuildResults.Count > 0)
@@ -436,7 +437,8 @@ namespace UGF.GameFramework.Data.Editor
         /// </summary>
         private bool HasSelectedFiles()
         {
-            return m_ExcelFileSelection.Any(kvp => kvp.Value);
+            // 使用ExcelFiles中的IsSelected状态，过滤掉类型定义文件
+            return m_ExcelFiles.Any(f => f.IsSelected && !IsTypeDefinitionFile(f.FileName));
         }
         
         /// <summary>
@@ -446,8 +448,14 @@ namespace UGF.GameFramework.Data.Editor
         {
             foreach (var file in m_ExcelFiles)
             {
-                m_ExcelFileSelection[file.FilePath] = true;
+                if (!IsTypeDefinitionFile(file.FileName))
+                {
+                    file.IsSelected = true;
+                    m_ExcelFileSelection[file.FilePath] = true;
+                    m_Settings.AddSelectedExcelFile(file.FilePath);
+                }
             }
+            SaveSettings();
             UpdateStatus("已全选所有文件");
         }
         
@@ -456,10 +464,16 @@ namespace UGF.GameFramework.Data.Editor
         /// </summary>
         private void DeselectAllFiles()
         {
-            foreach (var key in m_ExcelFileSelection.Keys.ToList())
+            foreach (var file in m_ExcelFiles)
             {
-                m_ExcelFileSelection[key] = false;
+                if (!IsTypeDefinitionFile(file.FileName))
+                {
+                    file.IsSelected = false;
+                    m_ExcelFileSelection[file.FilePath] = false;
+                    m_Settings.RemoveSelectedExcelFile(file.FilePath);
+                }
             }
+            SaveSettings();
             UpdateStatus("已取消全选");
         }
         
@@ -545,13 +559,20 @@ namespace UGF.GameFramework.Data.Editor
             m_Namespace = m_Settings.Namespace ?? "GameData";
             m_AutoRefresh = m_Settings.AutoRefresh;
             m_VerboseLogging = m_Settings.VerboseLogging;
+            m_TypeDefinitionFilePath = m_Settings.TypeDefinitionFilePath ?? "";
             
             // 同步选中的Excel文件列表
             if (m_Settings.SelectedExcelFiles != null && m_ExcelFiles != null)
             {
-                foreach (var excelFile in m_ExcelFiles)
+                // 过滤掉类型定义文件
+                var filteredFiles = m_ExcelFiles.Where(f => !IsTypeDefinitionFile(f.FileName)).ToList();
+                
+                foreach (var excelFile in filteredFiles)
                 {
-                    excelFile.IsSelected = m_Settings.IsExcelFileSelected(excelFile.FilePath);
+                    bool isSelected = m_Settings.IsExcelFileSelected(excelFile.FilePath);
+                    excelFile.IsSelected = isSelected;
+                    // 同步到选择字典中
+                    m_ExcelFileSelection[excelFile.FilePath] = isSelected;
                 }
             }
         }
@@ -1197,7 +1218,9 @@ namespace UGF.GameFramework.Data.Editor
             };
             
             EditorGUILayout.BeginHorizontal();
-            EditorGUILayout.LabelField($"📋 Excel文件列表 ({m_ExcelFiles.Count})", headerStyle);
+            // 计算过滤后的文件数量
+                var nonTypeDefFileCount = m_ExcelFiles.Count(f => !IsTypeDefinitionFile(f.FileName));
+                EditorGUILayout.LabelField($"📋 Excel文件列表 ({nonTypeDefFileCount})", headerStyle);
             GUILayout.FlexibleSpace();
             
             // 排序选项
@@ -1264,7 +1287,10 @@ namespace UGF.GameFramework.Data.Editor
                 // 文件列表
                 m_ExcelListScrollPosition = EditorGUILayout.BeginScrollView(m_ExcelListScrollPosition, GUILayout.Height(200));
                 
-                foreach (var excelFile in m_ExcelFiles)
+                // 过滤掉类型定义文件
+                var filteredFiles = m_ExcelFiles.Where(f => !IsTypeDefinitionFile(f.FileName)).ToList();
+                
+                foreach (var excelFile in filteredFiles)
                 {
                     EditorGUILayout.BeginHorizontal();
                     
@@ -1323,6 +1349,21 @@ namespace UGF.GameFramework.Data.Editor
                         GenerateCodeForSingleFile(excelFile.FilePath);
                     }
                     
+                    if (GUILayout.Button("构建", GUILayout.Width(50)))
+                    {
+                        BuildDataForSingleFile(excelFile.FilePath);
+                    }
+                    
+                    if (GUILayout.Button("查看", GUILayout.Width(50)))
+                    {
+                        ViewDataFile(excelFile.FilePath);
+                    }
+                    
+                    if (GUILayout.Button("打开", GUILayout.Width(50)))
+                    {
+                        OpenExcelFile(excelFile.FilePath);
+                    }
+                    
                     EditorGUILayout.EndHorizontal();
                 }
                 
@@ -1334,7 +1375,8 @@ namespace UGF.GameFramework.Data.Editor
             // 批量操作按钮
             EditorGUILayout.BeginHorizontal();
             
-            int selectedCount = m_ExcelFiles.Count(f => f.IsSelected);
+            // 只统计非类型定义文件的选中数量
+            int selectedCount = m_ExcelFiles.Count(f => f.IsSelected && !IsTypeDefinitionFile(f.FileName));
             GUI.enabled = selectedCount > 0;
             
             if (GUILayout.Button($"生成选中代码 ({selectedCount})", GUILayout.Height(30)))
@@ -1536,6 +1578,12 @@ namespace UGF.GameFramework.Data.Editor
             
             EditorGUILayout.Space(5);
             
+            // 自动检测类型定义文件
+            if (string.IsNullOrEmpty(m_TypeDefinitionFilePath))
+            {
+                AutoDetectTypeDefinitionFile();
+            }
+            
             // 类型定义文件选择
             EditorGUILayout.BeginHorizontal();
             EditorGUILayout.LabelField("类型定义文件:", GUILayout.Width(100));
@@ -1546,6 +1594,13 @@ namespace UGF.GameFramework.Data.Editor
             {
                 // 文件路径改变时清空解析结果
                 m_TypeDefinitionParseResult = null;
+                
+                // 保存到设置中
+                if (m_Settings != null)
+                {
+                    m_Settings.TypeDefinitionFilePath = m_TypeDefinitionFilePath;
+                    SaveSettings();
+                }
             }
             
             if (GUILayout.Button("选择", GUILayout.Width(60)))
@@ -1555,6 +1610,13 @@ namespace UGF.GameFramework.Data.Editor
                 {
                     m_TypeDefinitionFilePath = path;
                     m_TypeDefinitionParseResult = null;
+                    
+                    // 保存到设置中
+                    if (m_Settings != null)
+                    {
+                        m_Settings.TypeDefinitionFilePath = m_TypeDefinitionFilePath;
+                        SaveSettings();
+                    }
                 }
             }
             EditorGUILayout.EndHorizontal();
@@ -1861,6 +1923,72 @@ namespace UGF.GameFramework.Data.Editor
         }
         
         /// <summary>
+        /// 判断文件是否为类型定义文件
+        /// </summary>
+        /// <param name="fileName">文件名</param>
+        /// <returns>是否为类型定义文件</returns>
+        private bool IsTypeDefinitionFile(string fileName)
+        {
+            if (string.IsNullOrEmpty(fileName))
+                return false;
+                
+            var lowerFileName = fileName.ToLower();
+            
+            // 检查文件名是否包含类型定义相关的关键词
+            return lowerFileName.Contains("typedefinition") ||
+                   lowerFileName.Contains("类型定义") ||
+                   lowerFileName.Contains("type_definition") ||
+                   lowerFileName.Contains("typedef") ||
+                   lowerFileName.Contains("定义表");
+        }
+        
+        /// <summary>
+        /// 自动检测类型定义文件
+        /// </summary>
+        private void AutoDetectTypeDefinitionFile()
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(m_ExcelDirectory) || !Directory.Exists(m_ExcelDirectory))
+                    return;
+                    
+                // 搜索Excel目录中的类型定义文件
+                var excelFiles = Directory.GetFiles(m_ExcelDirectory, "*.xlsx", SearchOption.AllDirectories)
+                    .Where(f => !Path.GetFileName(f).StartsWith("~$")) // 排除临时文件
+                    .Where(f => IsTypeDefinitionFile(Path.GetFileName(f)))
+                    .ToList();
+                    
+                if (excelFiles.Count > 0)
+                 {
+                     // 优先选择第一个找到的类型定义文件
+                     m_TypeDefinitionFilePath = excelFiles.First();
+                     
+                     // 保存到设置中
+                     if (m_Settings != null)
+                     {
+                         m_Settings.TypeDefinitionFilePath = m_TypeDefinitionFilePath;
+                         SaveSettings();
+                     }
+                     
+                     // 如果找到多个，在控制台输出提示
+                     if (excelFiles.Count > 1)
+                     {
+                         Debug.Log($"找到 {excelFiles.Count} 个类型定义文件，自动选择: {Path.GetFileName(m_TypeDefinitionFilePath)}");
+                         Debug.Log($"其他文件: {string.Join(", ", excelFiles.Skip(1).Select(Path.GetFileName))}");
+                     }
+                     else
+                     {
+                         Debug.Log($"自动检测到类型定义文件: {Path.GetFileName(m_TypeDefinitionFilePath)}");
+                     }
+                 }
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError($"自动检测类型定义文件时发生错误: {ex.Message}");
+            }
+        }
+        
+        /// <summary>
         /// 绘制构建结果区域
         /// </summary>
         private void DrawPreviewSection()
@@ -1980,7 +2108,9 @@ namespace UGF.GameFramework.Data.Editor
         
         private void GenerateCodeForSelectedFiles()
         {
-            var selectedFiles = m_ExcelFileSelection.Where(kvp => kvp.Value).Select(kvp => kvp.Key).ToList();
+            // 使用ExcelFiles中的IsSelected状态，过滤掉类型定义文件
+            var selectedFiles = m_ExcelFiles.Where(f => f.IsSelected && !IsTypeDefinitionFile(f.FileName))
+                                           .Select(f => f.FilePath).ToList();
             
             if (selectedFiles.Count == 0)
             {
@@ -2013,7 +2143,9 @@ namespace UGF.GameFramework.Data.Editor
         
         private void BuildDataForSelectedFiles()
         {
-            var selectedFiles = m_ExcelFileSelection.Where(kvp => kvp.Value).Select(kvp => kvp.Key).ToList();
+            // 使用ExcelFiles中的IsSelected状态，过滤掉类型定义文件
+            var selectedFiles = m_ExcelFiles.Where(f => f.IsSelected && !IsTypeDefinitionFile(f.FileName))
+                                           .Select(f => f.FilePath).ToList();
             
             if (selectedFiles.Count == 0)
             {
@@ -2046,7 +2178,9 @@ namespace UGF.GameFramework.Data.Editor
         
         private void BuildAllSelectedFiles()
         {
-            var selectedFiles = m_ExcelFileSelection.Where(kvp => kvp.Value).Select(kvp => kvp.Key).ToList();
+            // 使用ExcelFiles中的IsSelected状态，过滤掉类型定义文件
+            var selectedFiles = m_ExcelFiles.Where(f => f.IsSelected && !IsTypeDefinitionFile(f.FileName))
+                                           .Select(f => f.FilePath).ToList();
             
             if (selectedFiles.Count == 0)
             {
@@ -2086,32 +2220,48 @@ namespace UGF.GameFramework.Data.Editor
                 
                 if (tableInfo != null)
                 {
-                    // 简化的数据构建实现，避免命名空间错误
-                    // var builderSettings = new DataBuilderSettings
-                    // {
-                    //     OutputDirectory = m_DataOutputPath
-                    // };
-                    // var builder = new DataBuilder(builderSettings);
-                    // 需要先获取数据类型，这里暂时使用简单的序列化方法
-                    var dataList = new List<object>();
-                    // 将ExcelTableData转换为字节数组的简单实现
-                    var jsonData = JsonUtility.ToJson(tableInfo);
-                    byte[] data = System.Text.Encoding.UTF8.GetBytes(jsonData);
-                    
-                    string outputPath = Path.Combine(m_DataOutputPath, $"{tableInfo.ClassName}.bytes");
-                    Directory.CreateDirectory(Path.GetDirectoryName(outputPath));
-                    File.WriteAllBytes(outputPath, data);
-                    
-                    var generatedFiles = new List<string> { outputPath };
-                    var statistics = new BuildStatistics
+                    try
                     {
-                        DataRowCount = tableInfo.Rows?.Count ?? 0,
-                        DataFileSize = data.Length,
-                        GeneratedFileCount = 1
-                    };
-                    
-                    AddBuildResult(BuildOperationType.BuildData, true, tableInfo.ClassName, "数据构建成功", 
-                        $"输出路径: {outputPath}", generatedFiles, 0, statistics);
+                        // 使用正确的二进制序列化器
+                        BinaryDataSerializer.SerializeToBinary(tableInfo, m_DataOutputPath);
+                        
+                        // 计算生成的文件路径
+                        var dataFileName = string.IsNullOrEmpty(tableInfo.ClassName) ? $"{tableInfo.TableName}.bytes" : $"{tableInfo.ClassName}.bytes";
+                        string outputPath = Path.Combine(m_DataOutputPath, dataFileName);
+                        
+                        // 验证文件是否成功生成
+                        if (!File.Exists(outputPath))
+                        {
+                            AddBuildResult(BuildOperationType.BuildData, false, tableInfo.ClassName, "数据构建失败", 
+                                "二进制文件生成失败", new List<string>(), 0, new BuildStatistics());
+                            return;
+                        }
+                        
+                        // 验证文件格式
+                        if (!BinaryDataSerializer.ValidateBinaryFile(outputPath))
+                        {
+                            AddBuildResult(BuildOperationType.BuildData, false, tableInfo.ClassName, "数据构建失败", 
+                                "生成的二进制文件格式无效", new List<string>(), 0, new BuildStatistics());
+                            return;
+                        }
+                        
+                        var fileInfo = new FileInfo(outputPath);
+                        var generatedFiles = new List<string> { outputPath };
+                        var statistics = new BuildStatistics
+                        {
+                            DataRowCount = tableInfo.Rows?.Count ?? 0,
+                            DataFileSize = fileInfo.Length,
+                            GeneratedFileCount = 1
+                        };
+                        
+                        AddBuildResult(BuildOperationType.BuildData, true, tableInfo.ClassName, "数据构建成功", 
+                            $"输出路径: {outputPath}", generatedFiles, 0, statistics);
+                    }
+                    catch (Exception ex)
+                    {
+                        AddBuildResult(BuildOperationType.BuildData, false, tableInfo.ClassName, "数据构建失败", 
+                            $"构建过程中发生错误: {ex.Message}", new List<string>(), 0, new BuildStatistics());
+                    }
                 }
                 else
                 {
@@ -2121,6 +2271,52 @@ namespace UGF.GameFramework.Data.Editor
             catch (Exception ex)
             {
                 AddBuildResult(BuildOperationType.BuildData, false, Path.GetFileName(filePath), "构建数据时发生错误", ex.Message);
+            }
+        }
+        
+        private void ViewDataFile(string excelFilePath)
+        {
+            try
+            {
+                string fileName = Path.GetFileNameWithoutExtension(excelFilePath);
+                string dataFileName = fileName + "Data.bytes";
+                string dataFilePath = Path.Combine(m_DataOutputPath, dataFileName);
+                
+                if (File.Exists(dataFilePath))
+                {
+                    BinaryDataViewer.OpenFile(dataFilePath);
+                }
+                else
+                {
+                    EditorUtility.DisplayDialog("文件不存在", $"数据文件不存在: {dataFilePath}\n\n请先构建该文件的数据。", "确定");
+                }
+            }
+            catch (Exception ex)
+            {
+                EditorUtility.DisplayDialog("错误", $"打开数据查看器时发生错误: {ex.Message}", "确定");
+            }
+        }
+        
+        private void OpenExcelFile(string excelFilePath)
+        {
+            try
+            {
+                if (File.Exists(excelFilePath))
+                {
+                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                    {
+                        FileName = excelFilePath,
+                        UseShellExecute = true
+                    });
+                }
+                else
+                {
+                    EditorUtility.DisplayDialog("文件不存在", $"Excel文件不存在: {excelFilePath}", "确定");
+                }
+            }
+            catch (Exception ex)
+            {
+                EditorUtility.DisplayDialog("错误", $"打开Excel文件时发生错误: {ex.Message}", "确定");
             }
         }
         

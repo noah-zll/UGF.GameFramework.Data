@@ -32,7 +32,7 @@ namespace UGF.GameFramework.Data.Editor
             // 确保输出目录存在
             Directory.CreateDirectory(outputPath);
             
-            var fileName = $"{tableInfo.TableName}.bytes";
+            var fileName = string.IsNullOrEmpty(tableInfo.ClassName) ? $"{tableInfo.TableName}.bytes" : $"{tableInfo.ClassName}.bytes";
             var filePath = Path.Combine(outputPath, fileName);
             
             using (var fileStream = new FileStream(filePath, FileMode.Create, FileAccess.Write))
