@@ -1,7 +1,7 @@
 {
   "name": "com.ugf.gameframework.data",
   "version": "1.0.0",
-  "displayName": "UGF GameFramework Data Tools",
+  "displayName": "UGF.GameFramework.Data",
   "description": "Excel to binary data table tools for GameFramework",
   "unity": "2021.3",
   "unityRelease": "0f1",

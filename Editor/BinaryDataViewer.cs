@@ -38,7 +38,7 @@ namespace UGF.GameFramework.Data.Editor
         private bool showRecordList = true;
         private bool showRecordDetails = true;
         
-        [MenuItem("Window/UGF/Data Table Viewer")]
+        [MenuItem("UGF/GameFramework/数据表查看器")]
         public static void ShowWindow()
         {
             var window = GetWindow<BinaryDataViewer>("数据表查看器");

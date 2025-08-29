@@ -140,9 +140,8 @@ namespace UGF.GameFramework.Data.Editor
         
         // 路径配置
         private string m_ExcelDirectory = "Assets/Configs/Excel";
-        private string m_CodeOutputPath = "Assets/Scripts/DataTables";
+        private string m_CodeOutputPath = "Assets/Scripts/Generated";
         private string m_DataOutputPath = "Assets/StreamingAssets/DataTables";
-        private string m_EnumOutputPath = "Assets/Scripts/Enums";
         private string m_Namespace = "GameData";
         
         // Excel文件管理
@@ -160,7 +159,18 @@ namespace UGF.GameFramework.Data.Editor
         private string m_TypeDefinitionFilePath = "";
         private bool m_GenerateFromTypeDefinition = false;
         private TypeDefinitionParseResult m_TypeDefinitionParseResult;
-        private string m_TypeDefinitionOutputPath = "Assets/Scripts/Generated/TypeDefinitions";
+        
+        // 类型选择
+        private bool m_GenerateEnums = true;
+        private bool m_GenerateClasses = true;
+        private bool m_GenerateStructs = true;
+        private bool m_GenerateConstants = true;
+        
+        // 具体类文件选择
+        private Dictionary<string, bool> m_EnumSelection = new Dictionary<string, bool>();
+        private Dictionary<string, bool> m_ClassSelection = new Dictionary<string, bool>();
+        private Dictionary<string, bool> m_StructSelection = new Dictionary<string, bool>();
+        private Dictionary<string, bool> m_ConstantSelection = new Dictionary<string, bool>();
         
         // 构建选项
         private bool m_AutoRefresh = true;
@@ -493,6 +503,8 @@ namespace UGF.GameFramework.Data.Editor
         private void OnEnable()
         {
             LoadSettings();
+            // 设置ExcelFileInfo的静态设置引用
+            ExcelFileInfo.SetSettings(m_Settings);
             RefreshExcelFiles();
             UpdateStatus("就绪");
         }
@@ -535,7 +547,7 @@ namespace UGF.GameFramework.Data.Editor
             
             // 设置默认值
             m_Settings.ExcelDirectory = "Assets/Configs/Excel";
-            m_Settings.CodeOutputDirectory = "Assets/Scripts/DataTables";
+            m_Settings.CodeOutputDirectory = "Assets/Scripts/Generated";
             m_Settings.DataOutputDirectory = "Assets/StreamingAssets/DataTables";
             
             // 确保目录存在
@@ -554,7 +566,7 @@ namespace UGF.GameFramework.Data.Editor
             if (m_Settings == null) return;
             
             m_ExcelDirectory = m_Settings.ExcelDirectory ?? "Assets/Configs/Excel";
-            m_CodeOutputPath = m_Settings.CodeOutputDirectory ?? "Assets/Scripts/DataTables";
+            m_CodeOutputPath = m_Settings.CodeOutputDirectory ?? "Assets/Scripts/Generated";
             m_DataOutputPath = m_Settings.DataOutputDirectory ?? "Assets/StreamingAssets/DataTables";
             m_Namespace = m_Settings.Namespace ?? "GameData";
             m_AutoRefresh = m_Settings.AutoRefresh;
@@ -575,6 +587,9 @@ namespace UGF.GameFramework.Data.Editor
                     m_ExcelFileSelection[excelFile.FilePath] = isSelected;
                 }
             }
+            
+            // 同步类型定义选择状态
+            LoadTypeDefinitionSelectionFromSettings();
         }
         
         private void ValidateAndFixSettings()
@@ -1635,7 +1650,8 @@ namespace UGF.GameFramework.Data.Editor
             GUI.enabled = m_TypeDefinitionParseResult != null && 
                          (m_TypeDefinitionParseResult.Enums.Count > 0 || 
                           m_TypeDefinitionParseResult.Classes.Count > 0 || 
-                          m_TypeDefinitionParseResult.Structs.Count > 0);
+                          m_TypeDefinitionParseResult.Structs.Count > 0 || 
+                          m_TypeDefinitionParseResult.Constants.Count > 0);
             if (GUILayout.Button("生成代码", GUILayout.Height(25)))
             {
                 GenerateTypeDefinitionCode();
@@ -1690,6 +1706,9 @@ namespace UGF.GameFramework.Data.Editor
                     UpdateStatus($"解析完成，共找到 {totalCount} 个类型定义");
                     AddBuildResult(BuildOperationType.Parse, true, Path.GetFileName(m_TypeDefinitionFilePath), 
                                  $"成功解析类型定义：枚举 {m_TypeDefinitionParseResult.Enums.Count} 个，类 {m_TypeDefinitionParseResult.Classes.Count} 个，结构体 {m_TypeDefinitionParseResult.Structs.Count} 个");
+                    
+                    // 解析完成后加载选择状态
+                    LoadTypeDefinitionSelectionFromSettings();
                 }
                 else
                 {
@@ -1726,66 +1745,122 @@ namespace UGF.GameFramework.Data.Editor
                 
                 var generatedFiles = new List<string>();
                 var statistics = new BuildStatistics();
+                var progressStep = 0f;
+                var totalSteps = 0;
+                
+                // 计算总步骤数
+                if (m_GenerateEnums && m_TypeDefinitionParseResult.Enums.Count > 0) totalSteps++;
+                if (m_GenerateClasses && m_TypeDefinitionParseResult.Classes.Count > 0) totalSteps++;
+                if (m_GenerateStructs && m_TypeDefinitionParseResult.Structs.Count > 0) totalSteps++;
+                if (m_GenerateConstants && m_TypeDefinitionParseResult.Constants.Count > 0) totalSteps++;
+                
+                var stepProgress = totalSteps > 0 ? 1f / totalSteps : 1f;
                 
                 // 生成枚举
-                if (m_TypeDefinitionParseResult.Enums.Count > 0)
+                if (m_GenerateEnums && m_TypeDefinitionParseResult.Enums.Count > 0)
                 {
-                    UpdateBuildProgress(0.2f, "生成枚举代码...");
+                    UpdateBuildProgress(progressStep, "生成枚举代码...");
+                    var enumOutputPath = Path.Combine(m_CodeOutputPath, "Enums");
                     foreach (var enumDef in m_TypeDefinitionParseResult.Enums)
                     {
+                        // 检查是否选择了该枚举
+                        if (m_EnumSelection.ContainsKey(enumDef.Name) && !m_EnumSelection[enumDef.Name])
+                            continue;
+                            
                         var enumCode = EnumCodeGenerator.GenerateEnumCodeFromDefinition(enumDef, m_Namespace);
-                        var enumFilePath = Path.Combine(m_EnumOutputPath, $"{enumDef.Name}.cs");
+                        var enumFilePath = Path.Combine(enumOutputPath, $"{enumDef.Name}.cs");
                         
                         Directory.CreateDirectory(Path.GetDirectoryName(enumFilePath));
                         File.WriteAllText(enumFilePath, enumCode, Encoding.UTF8);
                         generatedFiles.Add(enumFilePath);
                         statistics.CodeFileSize += new FileInfo(enumFilePath).Length;
                     }
+                    progressStep += stepProgress;
                 }
                 
                 // 生成类
-                if (m_TypeDefinitionParseResult.Classes.Count > 0)
+                if (m_GenerateClasses && m_TypeDefinitionParseResult.Classes.Count > 0)
                 {
-                    UpdateBuildProgress(0.6f, "生成类代码...");
+                    UpdateBuildProgress(progressStep, "生成类代码...");
+                    var classOutputPath = Path.Combine(m_CodeOutputPath, "Classes");
                     foreach (var classDef in m_TypeDefinitionParseResult.Classes)
                     {
+                        // 检查是否选择了该类
+                        if (m_ClassSelection.ContainsKey(classDef.Name) && !m_ClassSelection[classDef.Name])
+                            continue;
+                            
                         var classCode = ClassCodeGenerator.GenerateClassCode(classDef, m_Namespace);
-                        var classFilePath = Path.Combine(m_TypeDefinitionOutputPath, $"{classDef.Name}.cs");
+                        var classFilePath = Path.Combine(classOutputPath, $"{classDef.Name}.cs");
                         
                         Directory.CreateDirectory(Path.GetDirectoryName(classFilePath));
                         File.WriteAllText(classFilePath, classCode, Encoding.UTF8);
                         generatedFiles.Add(classFilePath);
                         statistics.CodeFileSize += new FileInfo(classFilePath).Length;
                     }
+                    progressStep += stepProgress;
                 }
                 
-                // 生成结构体（如果有的话）
-                if (m_TypeDefinitionParseResult.Structs.Count > 0)
+                // 生成结构体
+                if (m_GenerateStructs && m_TypeDefinitionParseResult.Structs.Count > 0)
                 {
-                    UpdateBuildProgress(0.8f, "生成结构体代码...");
-                    // 使用StructCodeGenerator生成结构体代码
+                    UpdateBuildProgress(progressStep, "生成结构体代码...");
+                    var structOutputPath = Path.Combine(m_CodeOutputPath, "Structs");
                     foreach (var structDef in m_TypeDefinitionParseResult.Structs)
                     {
+                        // 检查是否选择了该结构体
+                        if (m_StructSelection.ContainsKey(structDef.Name) && !m_StructSelection[structDef.Name])
+                            continue;
+                            
                         var structCode = StructCodeGenerator.GenerateStructCode(structDef, m_Namespace);
-                        var structFilePath = Path.Combine(m_TypeDefinitionOutputPath, $"{structDef.Name}.cs");
+                        var structFilePath = Path.Combine(structOutputPath, $"{structDef.Name}.cs");
                         
                         Directory.CreateDirectory(Path.GetDirectoryName(structFilePath));
                         File.WriteAllText(structFilePath, structCode, Encoding.UTF8);
                         generatedFiles.Add(structFilePath);
                         statistics.CodeFileSize += new FileInfo(structFilePath).Length;
                     }
+                    progressStep += stepProgress;
+                }
+                
+                // 生成常量
+                if (m_GenerateConstants && m_TypeDefinitionParseResult.Constants.Count > 0)
+                {
+                    UpdateBuildProgress(progressStep, "生成常量代码...");
+                    var constantOutputPath = Path.Combine(m_CodeOutputPath, "Constants");
+                    foreach (var constantDef in m_TypeDefinitionParseResult.Constants)
+                    {
+                        // 检查是否选择了该常量类
+                        if (m_ConstantSelection.ContainsKey(constantDef.Name) && !m_ConstantSelection[constantDef.Name])
+                            continue;
+                            
+                        var constantCode = ConstantCodeGenerator.GenerateConstantCode(constantDef, m_Namespace);
+                        var constantFilePath = Path.Combine(constantOutputPath, $"{constantDef.Name}.cs");
+                        
+                        Directory.CreateDirectory(Path.GetDirectoryName(constantFilePath));
+                        File.WriteAllText(constantFilePath, constantCode, Encoding.UTF8);
+                        generatedFiles.Add(constantFilePath);
+                        statistics.CodeFileSize += new FileInfo(constantFilePath).Length;
+                    }
                 }
                 
                 statistics.GeneratedFileCount = generatedFiles.Count;
                 
-                UpdateStatus($"代码生成完成，共生成 {generatedFiles.Count} 个文件");
-                AddBuildResult(BuildOperationType.GenerateCode, true, Path.GetFileName(m_TypeDefinitionFilePath), 
-                             $"成功生成 {generatedFiles.Count} 个代码文件", 
-                             string.Join("\n", generatedFiles.Select(f => Path.GetFileName(f))), 
-                             generatedFiles, 0, statistics);
+                if (generatedFiles.Count > 0)
+                {
+                    UpdateStatus($"代码生成完成，共生成 {generatedFiles.Count} 个文件");
+                    AddBuildResult(BuildOperationType.GenerateCode, true, Path.GetFileName(m_TypeDefinitionFilePath), 
+                                 $"成功生成 {generatedFiles.Count} 个代码文件", 
+                                 string.Join("\n", generatedFiles.Select(f => Path.GetFileName(f))), 
+                                 generatedFiles, 0, statistics);
+                }
+                else
+                {
+                    UpdateStatus("没有选择任何类型进行生成");
+                    AddBuildResult(BuildOperationType.GenerateCode, false, Path.GetFileName(m_TypeDefinitionFilePath), "没有选择任何类型进行生成");
+                }
                 
                 // 刷新资源
-                if (m_AutoRefresh)
+                if (m_AutoRefresh && generatedFiles.Count > 0)
                 {
                     AssetDatabase.Refresh();
                 }
@@ -1803,6 +1878,170 @@ namespace UGF.GameFramework.Data.Editor
         }
         
         /// <summary>
+        /// 从设置中加载类型定义选择状态
+        /// </summary>
+        private void LoadTypeDefinitionSelectionFromSettings()
+        {
+            if (m_Settings == null) return;
+            
+            // 加载类型选择状态
+            m_GenerateEnums = m_Settings.IsTypeDefinitionTypeSelected("Enum");
+            m_GenerateClasses = m_Settings.IsTypeDefinitionTypeSelected("Class");
+            m_GenerateStructs = m_Settings.IsTypeDefinitionTypeSelected("Struct");
+            m_GenerateConstants = m_Settings.IsTypeDefinitionTypeSelected("Constant");
+            
+            // 如果没有任何选择，默认全选
+            if (!m_GenerateEnums && !m_GenerateClasses && !m_GenerateStructs && !m_GenerateConstants)
+            {
+                m_GenerateEnums = true;
+                m_GenerateClasses = true;
+                m_GenerateStructs = true;
+                m_GenerateConstants = true;
+                SaveTypeSelectionToSettings();
+            }
+            
+            // 加载文件选择状态
+            if (m_TypeDefinitionParseResult != null)
+            {
+                // 加载枚举文件选择状态
+                foreach (var enumDef in m_TypeDefinitionParseResult.Enums)
+                {
+                    string key = $"Enum_{enumDef.Name}";
+                    m_EnumSelection[enumDef.Name] = m_Settings.IsTypeDefinitionFileSelected(key);
+                }
+                
+                // 加载类文件选择状态
+                foreach (var classDef in m_TypeDefinitionParseResult.Classes)
+                {
+                    string key = $"Class_{classDef.Name}";
+                    m_ClassSelection[classDef.Name] = m_Settings.IsTypeDefinitionFileSelected(key);
+                }
+                
+                // 加载结构体文件选择状态
+                foreach (var structDef in m_TypeDefinitionParseResult.Structs)
+                {
+                    string key = $"Struct_{structDef.Name}";
+                    m_StructSelection[structDef.Name] = m_Settings.IsTypeDefinitionFileSelected(key);
+                }
+                
+                // 加载常量文件选择状态
+                foreach (var constantDef in m_TypeDefinitionParseResult.Constants)
+                {
+                    string key = $"Constant_{constantDef.Name}";
+                    m_ConstantSelection[constantDef.Name] = m_Settings.IsTypeDefinitionFileSelected(key);
+                }
+            }
+        }
+        
+        /// <summary>
+        /// 绘制类型选择区域
+        /// </summary>
+
+        
+
+        
+        /// <summary>
+        /// 保存类型选择到设置
+        /// </summary>
+        private void SaveTypeSelectionToSettings()
+        {
+            if (m_Settings == null) return;
+            
+            m_Settings.SetTypeDefinitionTypeSelected("Enum", m_GenerateEnums);
+            m_Settings.SetTypeDefinitionTypeSelected("Class", m_GenerateClasses);
+            m_Settings.SetTypeDefinitionTypeSelected("Struct", m_GenerateStructs);
+            m_Settings.SetTypeDefinitionTypeSelected("Constant", m_GenerateConstants);
+            SaveSettings();
+        }
+        
+        /// <summary>
+        /// 保存文件选择到设置
+        /// </summary>
+        private void SaveFileSelectionToSettings()
+        {
+            if (m_Settings == null) return;
+            
+            // 保存枚举文件选择
+            foreach (var kvp in m_EnumSelection)
+            {
+                m_Settings.SetTypeDefinitionFileSelected($"Enum_{kvp.Key}", kvp.Value);
+            }
+            
+            // 保存类文件选择
+            foreach (var kvp in m_ClassSelection)
+            {
+                m_Settings.SetTypeDefinitionFileSelected($"Class_{kvp.Key}", kvp.Value);
+            }
+            
+            // 保存结构体文件选择
+            foreach (var kvp in m_StructSelection)
+            {
+                m_Settings.SetTypeDefinitionFileSelected($"Struct_{kvp.Key}", kvp.Value);
+            }
+            
+            // 保存常量文件选择
+            foreach (var kvp in m_ConstantSelection)
+            {
+                m_Settings.SetTypeDefinitionFileSelected($"Constant_{kvp.Key}", kvp.Value);
+            }
+            
+            SaveSettings();
+        }
+        
+        /// <summary>
+        /// 选择所有文件
+        /// </summary>
+        /// <param name="selected">是否选中</param>
+        private void SelectAllFiles(bool selected)
+        {
+            // 选择所有枚举文件
+            if (m_TypeDefinitionParseResult?.Enums != null)
+            {
+                foreach (var enumDef in m_TypeDefinitionParseResult.Enums)
+                {
+                    m_EnumSelection[enumDef.Name] = selected;
+                    if (m_Settings != null)
+                        m_Settings.SetTypeDefinitionFileSelected($"Enum_{enumDef.Name}", selected);
+                }
+            }
+            
+            // 选择所有类文件
+            if (m_TypeDefinitionParseResult?.Classes != null)
+            {
+                foreach (var classDef in m_TypeDefinitionParseResult.Classes)
+                {
+                    m_ClassSelection[classDef.Name] = selected;
+                    if (m_Settings != null)
+                        m_Settings.SetTypeDefinitionFileSelected($"Class_{classDef.Name}", selected);
+                }
+            }
+            
+            // 选择所有结构体文件
+            if (m_TypeDefinitionParseResult?.Structs != null)
+            {
+                foreach (var structDef in m_TypeDefinitionParseResult.Structs)
+                {
+                    m_StructSelection[structDef.Name] = selected;
+                    if (m_Settings != null)
+                        m_Settings.SetTypeDefinitionFileSelected($"Struct_{structDef.Name}", selected);
+                }
+            }
+            
+            // 选择所有常量文件
+            if (m_TypeDefinitionParseResult?.Constants != null)
+            {
+                foreach (var constantDef in m_TypeDefinitionParseResult.Constants)
+                {
+                    m_ConstantSelection[constantDef.Name] = selected;
+                    if (m_Settings != null)
+                        m_Settings.SetTypeDefinitionFileSelected($"Constant_{constantDef.Name}", selected);
+                }
+            }
+            
+            SaveSettings();
+        }
+        
+        /// <summary>
         /// 绘制类型定义解析结果
         /// </summary>
         private void DrawTypeDefinitionParseResult()
@@ -1810,14 +2049,72 @@ namespace UGF.GameFramework.Data.Editor
             if (m_TypeDefinitionParseResult == null)
                 return;
                 
-            EditorGUILayout.LabelField("解析结果:", EditorStyles.boldLabel);
+            // 解析结果统计信息
+            EditorGUILayout.BeginVertical("box");
+            EditorGUILayout.LabelField("📊 解析结果统计", EditorStyles.boldLabel);
             
-            // 统计信息
             EditorGUILayout.BeginHorizontal();
-            EditorGUILayout.LabelField($"枚举: {m_TypeDefinitionParseResult.Enums.Count}", GUILayout.Width(80));
-            EditorGUILayout.LabelField($"类: {m_TypeDefinitionParseResult.Classes.Count}", GUILayout.Width(60));
-            EditorGUILayout.LabelField($"结构体: {m_TypeDefinitionParseResult.Structs.Count}", GUILayout.Width(80));
+            var totalCount = m_TypeDefinitionParseResult.Enums.Count + m_TypeDefinitionParseResult.Classes.Count + 
+                           m_TypeDefinitionParseResult.Structs.Count + m_TypeDefinitionParseResult.Constants.Count;
+            EditorGUILayout.LabelField($"总计: {totalCount} 个类型定义", EditorStyles.miniLabel);
             EditorGUILayout.EndHorizontal();
+            
+            EditorGUILayout.BeginHorizontal();
+            EditorGUILayout.LabelField($"🔢 枚举: {m_TypeDefinitionParseResult.Enums.Count}", GUILayout.Width(100));
+            EditorGUILayout.LabelField($"🏛️ 类: {m_TypeDefinitionParseResult.Classes.Count}", GUILayout.Width(80));
+            EditorGUILayout.LabelField($"🏗️ 结构体: {m_TypeDefinitionParseResult.Structs.Count}", GUILayout.Width(100));
+            EditorGUILayout.LabelField($"📋 常量: {m_TypeDefinitionParseResult.Constants.Count}", GUILayout.Width(100));
+            EditorGUILayout.EndHorizontal();
+            EditorGUILayout.EndVertical();
+            
+            EditorGUILayout.Space(5);
+            
+            // 生成选项区域
+            EditorGUILayout.BeginVertical("box");
+            EditorGUILayout.LabelField("⚙️ 生成选项", EditorStyles.boldLabel);
+            
+            // 类型选择 - 使用更好的布局
+            EditorGUILayout.BeginHorizontal();
+            EditorGUI.BeginChangeCheck();
+            m_GenerateEnums = EditorGUILayout.ToggleLeft($"🔢 枚举 ({m_TypeDefinitionParseResult.Enums.Count})", m_GenerateEnums, GUILayout.Width(120));
+            m_GenerateClasses = EditorGUILayout.ToggleLeft($"🏛️ 类 ({m_TypeDefinitionParseResult.Classes.Count})", m_GenerateClasses, GUILayout.Width(100));
+            m_GenerateStructs = EditorGUILayout.ToggleLeft($"🏗️ 结构体 ({m_TypeDefinitionParseResult.Structs.Count})", m_GenerateStructs, GUILayout.Width(140));
+            m_GenerateConstants = EditorGUILayout.ToggleLeft($"📋 常量 ({m_TypeDefinitionParseResult.Constants.Count})", m_GenerateConstants, GUILayout.Width(120));
+            if (EditorGUI.EndChangeCheck())
+            {
+                SaveTypeSelectionToSettings();
+            }
+            EditorGUILayout.EndHorizontal();
+            
+            // 快速操作按钮
+            EditorGUILayout.BeginHorizontal();
+            if (GUILayout.Button("✅ 全选类型", GUILayout.Width(80)))
+            {
+                m_GenerateEnums = m_GenerateClasses = m_GenerateStructs = m_GenerateConstants = true;
+                SaveTypeSelectionToSettings();
+            }
+            if (GUILayout.Button("❌ 全不选", GUILayout.Width(80)))
+            {
+                m_GenerateEnums = m_GenerateClasses = m_GenerateStructs = m_GenerateConstants = false;
+                SaveTypeSelectionToSettings();
+            }
+            GUILayout.FlexibleSpace();
+            if (GUILayout.Button("✅ 全选文件", GUILayout.Width(80)))
+            {
+                SelectAllFiles(true);
+            }
+            if (GUILayout.Button("❌ 全不选文件", GUILayout.Width(80)))
+            {
+                SelectAllFiles(false);
+            }
+            EditorGUILayout.EndHorizontal();
+            
+            EditorGUILayout.Space(5);
+            
+            // 具体文件选择
+            DrawTypeSelectionDetails();
+            
+            EditorGUILayout.EndVertical();
             
             EditorGUILayout.Space(5);
             
@@ -1859,6 +2156,200 @@ namespace UGF.GameFramework.Data.Editor
                 {
                     EditorGUILayout.LabelField($"  ... 还有 {m_TypeDefinitionParseResult.Structs.Count - 5} 个结构体");
                 }
+            }
+            
+            if (m_TypeDefinitionParseResult.Constants.Count > 0)
+            {
+                EditorGUILayout.LabelField("常量列表:", EditorStyles.boldLabel);
+                foreach (var constantDef in m_TypeDefinitionParseResult.Constants.Take(5))
+                {
+                    EditorGUILayout.LabelField($"  • {constantDef.Name} ({constantDef.Constants.Count} 个常量)");
+                }
+                if (m_TypeDefinitionParseResult.Constants.Count > 5)
+                {
+                    EditorGUILayout.LabelField($"  ... 还有 {m_TypeDefinitionParseResult.Constants.Count - 5} 个常量类");
+                }
+            }
+        }
+        
+        /// <summary>
+        /// 绘制类型选择详细信息
+        /// </summary>
+        private void DrawTypeSelectionDetails()
+        {
+            if (m_TypeDefinitionParseResult == null)
+                return;
+                
+            // 枚举选择
+            if (m_GenerateEnums && m_TypeDefinitionParseResult.Enums.Count > 0)
+            {
+                EditorGUILayout.BeginVertical("helpbox");
+                EditorGUILayout.BeginHorizontal();
+                EditorGUILayout.LabelField("🔢 选择要生成的枚举文件", EditorStyles.miniBoldLabel);
+                GUILayout.FlexibleSpace();
+                if (GUILayout.Button("✅ 全选", GUILayout.Width(60)))
+                {
+                    foreach (var enumDef in m_TypeDefinitionParseResult.Enums)
+                    {
+                        m_EnumSelection[enumDef.Name] = true;
+                    }
+                    SaveFileSelectionToSettings();
+                }
+                if (GUILayout.Button("❌ 全不选", GUILayout.Width(70)))
+                {
+                    foreach (var enumDef in m_TypeDefinitionParseResult.Enums)
+                    {
+                        m_EnumSelection[enumDef.Name] = false;
+                    }
+                    SaveFileSelectionToSettings();
+                }
+                EditorGUILayout.EndHorizontal();
+                
+                EditorGUILayout.Space(3);
+                
+                foreach (var enumDef in m_TypeDefinitionParseResult.Enums)
+                {
+                    if (!m_EnumSelection.ContainsKey(enumDef.Name))
+                        m_EnumSelection[enumDef.Name] = true;
+                    EditorGUI.BeginChangeCheck();
+                    bool selected = EditorGUILayout.ToggleLeft($"  📄 {enumDef.Name} ({enumDef.Values.Count} 个值)", m_EnumSelection[enumDef.Name]);
+                    if (EditorGUI.EndChangeCheck())
+                    {
+                        m_EnumSelection[enumDef.Name] = selected;
+                        SaveFileSelectionToSettings();
+                    }
+                }
+                EditorGUILayout.EndVertical();
+                EditorGUILayout.Space(5);
+            }
+            
+            // 类选择
+            if (m_GenerateClasses && m_TypeDefinitionParseResult.Classes.Count > 0)
+            {
+                EditorGUILayout.BeginVertical("helpbox");
+                EditorGUILayout.BeginHorizontal();
+                EditorGUILayout.LabelField("🏛️ 选择要生成的类文件", EditorStyles.miniBoldLabel);
+                GUILayout.FlexibleSpace();
+                if (GUILayout.Button("✅ 全选", GUILayout.Width(60)))
+                {
+                    foreach (var classDef in m_TypeDefinitionParseResult.Classes)
+                    {
+                        m_ClassSelection[classDef.Name] = true;
+                    }
+                    SaveFileSelectionToSettings();
+                }
+                if (GUILayout.Button("❌ 全不选", GUILayout.Width(70)))
+                {
+                    foreach (var classDef in m_TypeDefinitionParseResult.Classes)
+                    {
+                        m_ClassSelection[classDef.Name] = false;
+                    }
+                    SaveFileSelectionToSettings();
+                }
+                EditorGUILayout.EndHorizontal();
+                
+                EditorGUILayout.Space(3);
+                
+                foreach (var classDef in m_TypeDefinitionParseResult.Classes)
+                {
+                    if (!m_ClassSelection.ContainsKey(classDef.Name))
+                        m_ClassSelection[classDef.Name] = true;
+                    EditorGUI.BeginChangeCheck();
+                    bool selected = EditorGUILayout.ToggleLeft($"  📄 {classDef.Name} ({classDef.Properties.Count} 个属性)", m_ClassSelection[classDef.Name]);
+                    if (EditorGUI.EndChangeCheck())
+                    {
+                        m_ClassSelection[classDef.Name] = selected;
+                        SaveFileSelectionToSettings();
+                    }
+                }
+                EditorGUILayout.EndVertical();
+                EditorGUILayout.Space(5);
+            }
+            
+            // 结构体选择
+            if (m_GenerateStructs && m_TypeDefinitionParseResult.Structs.Count > 0)
+            {
+                EditorGUILayout.BeginVertical("helpbox");
+                EditorGUILayout.BeginHorizontal();
+                EditorGUILayout.LabelField("🏗️ 选择要生成的结构体文件", EditorStyles.miniBoldLabel);
+                GUILayout.FlexibleSpace();
+                if (GUILayout.Button("✅ 全选", GUILayout.Width(60)))
+                {
+                    foreach (var structDef in m_TypeDefinitionParseResult.Structs)
+                    {
+                        m_StructSelection[structDef.Name] = true;
+                    }
+                    SaveFileSelectionToSettings();
+                }
+                if (GUILayout.Button("❌ 全不选", GUILayout.Width(70)))
+                {
+                    foreach (var structDef in m_TypeDefinitionParseResult.Structs)
+                    {
+                        m_StructSelection[structDef.Name] = false;
+                    }
+                    SaveFileSelectionToSettings();
+                }
+                EditorGUILayout.EndHorizontal();
+                
+                EditorGUILayout.Space(3);
+                
+                foreach (var structDef in m_TypeDefinitionParseResult.Structs)
+                {
+                    if (!m_StructSelection.ContainsKey(structDef.Name))
+                        m_StructSelection[structDef.Name] = true;
+                    EditorGUI.BeginChangeCheck();
+                    bool selected = EditorGUILayout.ToggleLeft($"  📄 {structDef.Name} ({structDef.Fields.Count} 个字段)", m_StructSelection[structDef.Name]);
+                    if (EditorGUI.EndChangeCheck())
+                    {
+                        m_StructSelection[structDef.Name] = selected;
+                        SaveFileSelectionToSettings();
+                    }
+                }
+                EditorGUILayout.EndVertical();
+                EditorGUILayout.Space(5);
+            }
+            
+            // 常量选择
+            if (m_GenerateConstants && m_TypeDefinitionParseResult.Constants.Count > 0)
+            {
+                EditorGUILayout.BeginVertical("helpbox");
+                EditorGUILayout.BeginHorizontal();
+                EditorGUILayout.LabelField("📋 选择要生成的常量文件", EditorStyles.miniBoldLabel);
+                GUILayout.FlexibleSpace();
+                if (GUILayout.Button("✅ 全选", GUILayout.Width(60)))
+                {
+                    foreach (var constantDef in m_TypeDefinitionParseResult.Constants)
+                    {
+                        m_ConstantSelection[constantDef.Name] = true;
+                    }
+                    SaveFileSelectionToSettings();
+                }
+                if (GUILayout.Button("❌ 全不选", GUILayout.Width(70)))
+                {
+                    foreach (var constantDef in m_TypeDefinitionParseResult.Constants)
+                    {
+                        m_ConstantSelection[constantDef.Name] = false;
+                    }
+                    SaveFileSelectionToSettings();
+                }
+                EditorGUILayout.EndHorizontal();
+                
+                EditorGUILayout.Space(3);
+                
+                foreach (var constantDef in m_TypeDefinitionParseResult.Constants)
+                {
+                    if (!m_ConstantSelection.ContainsKey(constantDef.Name))
+                        m_ConstantSelection[constantDef.Name] = true;
+                    EditorGUI.BeginChangeCheck();
+                    bool selected = EditorGUILayout.ToggleLeft($"  📄 {constantDef.Name} ({constantDef.Constants.Count} 个常量)", m_ConstantSelection[constantDef.Name]);
+                    if (EditorGUI.EndChangeCheck())
+                    {
+                        m_ConstantSelection[constantDef.Name] = selected;
+                        SaveFileSelectionToSettings();
+                    }
+                }
+                EditorGUILayout.EndVertical();
+                EditorGUILayout.Space(5);
             }
         }
         
@@ -2042,7 +2533,7 @@ namespace UGF.GameFramework.Data.Editor
                     // 简单的代码生成实现
                     string code = GenerateSimpleDataModel(tableInfo);
                     
-                    string outputPath = Path.Combine(m_CodeOutputPath, $"{tableInfo.ClassName}.cs");
+                    string outputPath = Path.Combine(m_CodeOutputPath, $"DataTables/{tableInfo.ClassName}.cs");
                     Directory.CreateDirectory(Path.GetDirectoryName(outputPath));
                     File.WriteAllText(outputPath, code);
                     
@@ -2056,6 +2547,9 @@ namespace UGF.GameFramework.Data.Editor
                     
                     AddBuildResult(BuildOperationType.GenerateCode, true, tableInfo.ClassName, "代码生成成功", 
                         $"输出路径: {outputPath}", generatedFiles, 0, statistics);
+                    
+                    // 标记文件为已处理
+                    MarkFileAsProcessed(filePath);
                 }
                 else
                 {
@@ -2222,12 +2716,15 @@ namespace UGF.GameFramework.Data.Editor
                 {
                     try
                     {
+                        // 使用DataTables子文件夹作为数据输出路径
+                        var dataTablesOutputPath = Path.Combine(m_DataOutputPath, "DataTables");
+                        
                         // 使用正确的二进制序列化器
-                        BinaryDataSerializer.SerializeToBinary(tableInfo, m_DataOutputPath);
+                        BinaryDataSerializer.SerializeToBinary(tableInfo, dataTablesOutputPath);
                         
                         // 计算生成的文件路径
                         var dataFileName = string.IsNullOrEmpty(tableInfo.ClassName) ? $"{tableInfo.TableName}.bytes" : $"{tableInfo.ClassName}.bytes";
-                        string outputPath = Path.Combine(m_DataOutputPath, dataFileName);
+                        string outputPath = Path.Combine(dataTablesOutputPath, dataFileName);
                         
                         // 验证文件是否成功生成
                         if (!File.Exists(outputPath))
@@ -2256,6 +2753,9 @@ namespace UGF.GameFramework.Data.Editor
                         
                         AddBuildResult(BuildOperationType.BuildData, true, tableInfo.ClassName, "数据构建成功", 
                             $"输出路径: {outputPath}", generatedFiles, 0, statistics);
+                        
+                        // 标记文件为已处理
+                        MarkFileAsProcessed(filePath);
                     }
                     catch (Exception ex)
                     {
@@ -2279,8 +2779,9 @@ namespace UGF.GameFramework.Data.Editor
             try
             {
                 string fileName = Path.GetFileNameWithoutExtension(excelFilePath);
-                string dataFileName = fileName + "Data.bytes";
-                string dataFilePath = Path.Combine(m_DataOutputPath, dataFileName);
+            string dataFileName = fileName + "Data.bytes";
+            var dataTablesOutputPath = Path.Combine(m_DataOutputPath, "DataTables");
+            string dataFilePath = Path.Combine(dataTablesOutputPath, dataFileName);
                 
                 if (File.Exists(dataFilePath))
                 {
@@ -2317,6 +2818,26 @@ namespace UGF.GameFramework.Data.Editor
             catch (Exception ex)
             {
                 EditorUtility.DisplayDialog("错误", $"打开Excel文件时发生错误: {ex.Message}", "确定");
+            }
+        }
+        
+        /// <summary>
+        /// 标记文件为已处理
+        /// </summary>
+        private void MarkFileAsProcessed(string filePath)
+        {
+            if (m_Settings != null)
+            {
+                // 记录处理时间到设置中
+                m_Settings.SetFileProcessTime(filePath, DateTime.Now);
+                SaveSettings();
+                
+                // 更新文件状态显示
+                var fileInfo = m_ExcelFiles.FirstOrDefault(f => f.FilePath.Equals(filePath, StringComparison.OrdinalIgnoreCase));
+                if (fileInfo != null)
+                {
+                    fileInfo.Status = "已处理";
+                }
             }
         }
         
@@ -2366,11 +2887,34 @@ namespace UGF.GameFramework.Data.Editor
         public List<string> WorksheetNames;
         public bool IsSelected;
         public bool HasError;
-        public bool IsProcessed;
         public string Status;
         public string ErrorMessage;
         public ExcelParseResult ParseResult;
         public long FileSize;
+        
+        // 静态引用到设置对象，用于判断处理状态
+        private static DataTableBuilderSettings s_Settings;
+        
+        /// <summary>
+        /// 设置全局设置对象引用
+        /// </summary>
+        /// <param name="settings">设置对象</param>
+        public static void SetSettings(DataTableBuilderSettings settings)
+        {
+            s_Settings = settings;
+        }
+        
+        /// <summary>
+        /// 是否已处理（基于文件修改时间判断）
+        /// </summary>
+        public bool IsProcessed
+        {
+            get
+            {
+                if (s_Settings == null) return false;
+                return !s_Settings.NeedsReprocess(FilePath, LastModified);
+            }
+        }
         
         /// <summary>
         /// 获取格式化的最后修改时间字符串

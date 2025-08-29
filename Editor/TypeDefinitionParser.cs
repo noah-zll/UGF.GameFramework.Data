@@ -80,6 +80,26 @@ namespace UGF.GameFramework.Data.Editor
     }
 
     /// <summary>
+    /// 常量定义信息
+    /// </summary>
+    public class ConstantDefinitionInfo : TypeDefinitionInfo
+    {
+        public List<ConstantInfo> Constants { get; set; } = new List<ConstantInfo>();
+    }
+
+    /// <summary>
+    /// 常量信息
+    /// </summary>
+    public class ConstantInfo
+    {
+        public string Name { get; set; }
+        public string Type { get; set; }
+        public string Value { get; set; }
+        public string Description { get; set; }
+        public string Category { get; set; }
+    }
+
+    /// <summary>
     /// 类型定义解析结果
     /// </summary>
     public class TypeDefinitionParseResult
@@ -87,6 +107,7 @@ namespace UGF.GameFramework.Data.Editor
         public List<EnumDefinitionInfo> Enums { get; set; } = new List<EnumDefinitionInfo>();
         public List<ClassDefinitionInfo> Classes { get; set; } = new List<ClassDefinitionInfo>();
         public List<StructDefinitionInfo> Structs { get; set; } = new List<StructDefinitionInfo>();
+        public List<ConstantDefinitionInfo> Constants { get; set; } = new List<ConstantDefinitionInfo>();
         public bool Success { get; set; }
         public string ErrorMessage { get; set; }
     }
@@ -124,6 +145,9 @@ namespace UGF.GameFramework.Data.Editor
                     
                     // 解析结构体定义
                     ParseStructDefinitions(package, result, defaultNamespace);
+                    
+                    // 解析常量定义
+                    ParseConstantDefinitions(package, result, defaultNamespace);
                 }
 
                 result.Success = true;
@@ -310,6 +334,62 @@ namespace UGF.GameFramework.Data.Editor
             }
 
             result.Structs.AddRange(structDict.Values);
+        }
+
+        /// <summary>
+        /// 解析常量定义
+        /// </summary>
+        private static void ParseConstantDefinitions(ExcelPackage package, TypeDefinitionParseResult result, string defaultNamespace)
+        {
+            var worksheet = FindWorksheet(package, "Constants", "ConstantDefinitions");
+            if (worksheet == null) return;
+
+            var constantDict = new Dictionary<string, ConstantDefinitionInfo>();
+            
+            // 查找表头
+            var headers = FindHeaders(worksheet, new[] { "ClassName", "ConstantName", "ConstantType", "ConstantValue", "Description", "Category" });
+            if (headers["ClassName"] == -1 || headers["ConstantName"] == -1 || headers["ConstantType"] == -1 || headers["ConstantValue"] == -1)
+            {
+                Debug.LogWarning("常量定义表缺少必要的列: ClassName, ConstantName, ConstantType, ConstantValue");
+                return;
+            }
+
+            int rowCount = worksheet.Dimension?.Rows ?? 0;
+            for (int row = 4; row <= rowCount; row++) // 从第4行开始，跳过表头和类型说明行
+            {
+                var className = GetCellValue(worksheet, row, headers["ClassName"]);
+                var constantName = GetCellValue(worksheet, row, headers["ConstantName"]);
+                var constantType = GetCellValue(worksheet, row, headers["ConstantType"]);
+                var constantValue = GetCellValue(worksheet, row, headers["ConstantValue"]);
+                
+                if (string.IsNullOrEmpty(className) || string.IsNullOrEmpty(constantName) || 
+                    string.IsNullOrEmpty(constantType) || string.IsNullOrEmpty(constantValue))
+                    continue;
+
+                // 获取或创建常量定义
+                if (!constantDict.ContainsKey(className))
+                {
+                    constantDict[className] = new ConstantDefinitionInfo
+                    {
+                        Name = className,
+                        Namespace = defaultNamespace
+                    };
+                }
+
+                var constantDef = constantDict[className];
+                var constant = new ConstantInfo
+                {
+                    Name = constantName,
+                    Type = constantType,
+                    Value = constantValue,
+                    Description = GetCellValue(worksheet, row, headers["Description"]),
+                    Category = GetCellValue(worksheet, row, headers["Category"])
+                };
+
+                constantDef.Constants.Add(constant);
+            }
+
+            result.Constants.AddRange(constantDict.Values);
         }
 
         /// <summary>

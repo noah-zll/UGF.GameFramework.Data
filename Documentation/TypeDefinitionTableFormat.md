@@ -11,6 +11,7 @@
 - **枚举定义表**：`Enums` 或 `EnumDefinitions`
 - **类定义表**：`Classes` 或 `ClassDefinitions`
 - **结构体定义表**：`Structs` 或 `StructDefinitions`
+- **常量定义表**：`Constants` 或 `ConstantDefinitions`
 
 ### 枚举定义表格式
 
@@ -75,6 +76,26 @@
 | ItemStack  | ItemId    | int       | false   | 物品ID      | 0           |
 | ItemStack  | Count     | int       | false   | 数量        | 1           |
 
+### 常量定义表格式
+
+#### 表头结构
+| ClassName | ConstantName | ConstantType | ConstantValue | Description |
+|-----------|--------------|--------------|---------------|-------------|
+| string    | string       | string       | string        | string      |
+| 类名      | 常量名       | 常量类型     | 常量值        | 描述        |
+
+#### 示例数据
+| ClassName | ConstantName | ConstantType | ConstantValue | Description |
+|-----------|--------------|--------------|---------------|-------------|
+| string    | string       | string       | string        | string      |
+| 类名      | 常量名       | 常量类型     | 常量值        | 描述        |
+| GameConfig | MaxLevel     | int          | 100           | 最大等级    |
+| GameConfig | DefaultName  | string       | "Player"      | 默认玩家名  |
+| GameConfig | GoldRate     | float        | 1.5f          | 金币倍率    |
+| UIConfig   | WindowWidth  | int          | 1920          | 窗口宽度    |
+| UIConfig   | WindowHeight | int          | 1080          | 窗口高度    |
+| UIConfig   | AppName      | string       | "MyGame"      | 应用名称    |
+
 ## 字段说明
 
 ### 枚举定义表字段
@@ -103,6 +124,14 @@
 - **IsArray**：是否为数组类型
 - **Description**：字段描述，用于生成注释
 - **DefaultValue**：默认值，用于字段初始化
+
+### 常量定义表字段
+
+- **ClassName**：常量类名称，相同名称的行会被归并为一个常量类
+- **ConstantName**：常量名称，必须是有效的C#标识符
+- **ConstantType**：常量类型，支持基础类型
+- **ConstantValue**：常量值，必须与类型匹配
+- **Description**：常量描述，用于生成注释
 
 ## 支持的数据类型
 
@@ -144,11 +173,18 @@
 3. 自动生成构造函数
 4. 生成的结构体包含完整的XML注释
 
+### 常量生成规则
+1. 按ClassName分组生成独立的常量类文件
+2. 常量按定义顺序排列
+3. 自动处理不同类型的常量值格式化
+4. 生成的常量类包含完整的XML注释
+5. 所有常量都是public static readonly
+
 ## 使用示例
 
 ### 创建类型定义表
 1. 创建名为`TypeDefinitions.xlsx`的Excel文件
-2. 创建`Enums`、`Classes`、`Structs`工作表
+2. 创建`Enums`、`Classes`、`Structs`、`Constants`工作表
 3. 按照格式规范填写类型定义
 4. 在DataTableBuilder中选择该文件进行代码生成
 
@@ -218,6 +254,31 @@ namespace YourNamespace
         /// 标签列表
         /// </summary>
         public string[] Tags { get; set; }
+    }
+}
+
+// GameConfig.cs
+namespace YourNamespace
+{
+    /// <summary>
+    /// 游戏配置常量类
+    /// </summary>
+    public static class GameConfig
+    {
+        /// <summary>
+        /// 最大等级
+        /// </summary>
+        public static readonly int MaxLevel = 100;
+        
+        /// <summary>
+        /// 默认玩家名
+        /// </summary>
+        public static readonly string DefaultName = "Player";
+        
+        /// <summary>
+        /// 金币倍率
+        /// </summary>
+        public static readonly float GoldRate = 1.5f;
     }
 }
 ```
