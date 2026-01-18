@@ -551,7 +551,7 @@ namespace UGF.GameFramework.Data.Editor
             m_Settings.DataOutputDirectory = "Assets/StreamingAssets/DataTables";
             
             // 确保目录存在
-            string settingsDir = "Assets/Editor/Settings";
+            string settingsDir = "Assets/Settings/UGF";
             if (!Directory.Exists(settingsDir))
                 Directory.CreateDirectory(settingsDir);
                 
@@ -2523,37 +2523,59 @@ namespace UGF.GameFramework.Data.Editor
         {
             try
             {
+                if (string.IsNullOrEmpty(filePath) || !File.Exists(filePath))
+                {
+                    AddBuildResult(BuildOperationType.GenerateCode, false, "Excel文件路径无效");
+                    return;
+                }
+                
                 var fileName = Path.GetFileName(filePath);
                 AddBuildResult(BuildOperationType.GenerateCode, true, fileName, "开始生成代码");
                 
-                var tableInfo = ExcelParser.ParseExcel(filePath, "");
-                
-                if (tableInfo != null)
+                var config = new DataTableBuilder.BuildConfig
                 {
-                    // 简单的代码生成实现
-                    string code = GenerateSimpleDataModel(tableInfo);
-                    
-                    string outputPath = Path.Combine(m_CodeOutputPath, $"DataTables/{tableInfo.ClassName}.cs");
-                    Directory.CreateDirectory(Path.GetDirectoryName(outputPath));
-                    File.WriteAllText(outputPath, code);
-                    
-                    var generatedFiles = new List<string> { outputPath };
+                    ExcelFilePath = filePath,
+                    SheetName = string.Empty,
+                    NamespaceName = m_Namespace,
+                    CodeOutputPath = m_CodeOutputPath,
+                    DataOutputPath = m_DataOutputPath,
+                    GenerateCode = true,
+                    GenerateData = false,
+                    OverwriteExisting = true,
+                    GenerateEnums = false,
+                    EnumOutputPath = m_CodeOutputPath
+                };
+                
+                var result = DataTableBuilder.BuildDataTable(config);
+                
+                if (result.Success && result.GeneratedFiles != null && result.GeneratedFiles.Count > 0)
+                {
+                    var codeFilePath = result.GeneratedFiles[0];
+                    var fileInfo = new FileInfo(codeFilePath);
                     var statistics = new BuildStatistics
                     {
-                        FieldCount = tableInfo.Fields.Count,
-                        CodeFileSize = new FileInfo(outputPath).Length,
+                        FieldCount = result.TableInfo?.Fields?.Count ?? 0,
+                        CodeFileSize = fileInfo.Length,
                         GeneratedFileCount = 1
                     };
                     
-                    AddBuildResult(BuildOperationType.GenerateCode, true, tableInfo.ClassName, "代码生成成功", 
-                        $"输出路径: {outputPath}", generatedFiles, 0, statistics);
+                    var generatedFiles = new List<string> { codeFilePath };
+                    var className = Path.GetFileNameWithoutExtension(codeFilePath);
                     
-                    // 标记文件为已处理
+                    AddBuildResult(BuildOperationType.GenerateCode, true, className, "代码生成成功", 
+                        $"输出路径: {codeFilePath}", generatedFiles, 0, statistics);
+                    
                     MarkFileAsProcessed(filePath);
+                    
+                    if (m_AutoRefresh)
+                    {
+                        AssetDatabase.Refresh();
+                    }
                 }
                 else
                 {
-                    AddBuildResult(BuildOperationType.GenerateCode, false, fileName, "解析Excel文件失败");
+                    var message = string.IsNullOrEmpty(result.ErrorMessage) ? "代码生成失败" : result.ErrorMessage;
+                    AddBuildResult(BuildOperationType.GenerateCode, false, fileName, message);
                 }
             }
             catch (Exception ex)
@@ -2581,7 +2603,7 @@ namespace UGF.GameFramework.Data.Editor
                     // 如果ClassName为空，则根据表名生成
                     if (string.IsNullOrEmpty(m_CurrentTableInfo.ClassName))
                     {
-                        m_CurrentTableInfo.ClassName = m_CurrentTableInfo.TableName + "Data";
+                        m_CurrentTableInfo.ClassName = m_CurrentTableInfo.TableName;
                     }
                     
                     UpdateStatus($"预览完成，表格: {tableInfo.TableName}");
@@ -2716,15 +2738,12 @@ namespace UGF.GameFramework.Data.Editor
                 {
                     try
                     {
-                        // 使用DataTables子文件夹作为数据输出路径
-                        var dataTablesOutputPath = Path.Combine(m_DataOutputPath, "DataTables");
-                        
                         // 使用正确的二进制序列化器
-                        BinaryDataSerializer.SerializeToBinary(tableInfo, dataTablesOutputPath);
+                        BinaryDataSerializer.SerializeToBinary(tableInfo, m_DataOutputPath);
                         
                         // 计算生成的文件路径
                         var dataFileName = string.IsNullOrEmpty(tableInfo.ClassName) ? $"{tableInfo.TableName}.bytes" : $"{tableInfo.ClassName}.bytes";
-                        string outputPath = Path.Combine(dataTablesOutputPath, dataFileName);
+                        string outputPath = Path.Combine(m_DataOutputPath, dataFileName);
                         
                         // 验证文件是否成功生成
                         if (!File.Exists(outputPath))
@@ -2779,9 +2798,8 @@ namespace UGF.GameFramework.Data.Editor
             try
             {
                 string fileName = Path.GetFileNameWithoutExtension(excelFilePath);
-            string dataFileName = fileName + "Data.bytes";
-            var dataTablesOutputPath = Path.Combine(m_DataOutputPath, "DataTables");
-            string dataFilePath = Path.Combine(dataTablesOutputPath, dataFileName);
+                string dataFileName = fileName + ".bytes";
+                string dataFilePath = Path.Combine(m_DataOutputPath, dataFileName);
                 
                 if (File.Exists(dataFilePath))
                 {

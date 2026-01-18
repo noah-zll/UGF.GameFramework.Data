@@ -60,7 +60,7 @@ namespace UGF.GameFramework.Data.Editor
             var tableInfo = new ExcelTableInfo
             {
                 TableName = tableName,
-                ClassName = tableName + "Data"
+                ClassName = tableName
             };
             
             if (worksheet.Dimension == null || worksheet.Dimension.Rows < 2)
