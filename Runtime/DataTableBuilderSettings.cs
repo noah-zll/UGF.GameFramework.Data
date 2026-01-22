@@ -1,8 +1,10 @@
 using UnityEngine;
 using System;
 using System.Collections.Generic;
+using UnityEditor;
+using System.IO;
 
-namespace UGF.GameFramework.Data.Editor
+namespace UGF.GameFramework.Data
 {
     /// <summary>
     /// 数据表构建器设置
@@ -19,6 +21,17 @@ namespace UGF.GameFramework.Data.Editor
         
         [SerializeField, Tooltip("数据输出目录")]
         private string m_DataOutputDirectory = "Assets/StreamingAssets/Data";
+
+        private static DataTableBuilderSettings _instance;
+
+        public static DataTableBuilderSettings Instance
+        {
+            get
+            {
+                if (_instance == null) LoadOrCreateSettings();
+                return _instance;
+            }
+        }
         
         [Header("代码生成配置")]
         [SerializeField, Tooltip("命名空间")]
@@ -160,6 +173,52 @@ namespace UGF.GameFramework.Data.Editor
                 }
                 return dict;
             }
+        }
+
+        private static void LoadOrCreateSettings()
+        {
+            LoadSettings();
+            if (_instance == null) CreateDefaultSettings();
+        }
+
+        /// <summary>
+        /// 加载设置
+        /// </summary>
+        /// <returns>是否成功加载设置</returns>
+        private static void LoadSettings()
+        {
+            _instance = Resources.Load<DataTableBuilderSettings>("DataTableBuilderSettings");
+#if UNITY_EDITOR
+            if (_instance == null)
+            {
+                string[] guids = AssetDatabase.FindAssets("t:DataTableBuilderSettings");
+                if (guids.Length > 0)
+                {
+                    string path = AssetDatabase.GUIDToAssetPath(guids[0]);
+                    _instance = AssetDatabase.LoadAssetAtPath<DataTableBuilderSettings>(path);
+                }
+            }
+#endif
+        }
+
+        private static void CreateDefaultSettings()
+        {
+            _instance = CreateInstance<DataTableBuilderSettings>();
+            
+            // 设置默认值
+            _instance.ExcelDirectory = "Assets/Configs/Excel";
+            _instance.CodeOutputDirectory = "Assets/Scripts/Generated";
+            _instance.DataOutputDirectory = "Assets/StreamingAssets/DataTables";
+            
+            // 确保目录存在
+            string settingsDir = "Assets/Settings/UGF";
+            if (!Directory.Exists(settingsDir))
+                Directory.CreateDirectory(settingsDir);
+                
+            string settingsPath = Path.Combine(settingsDir, "DataTableBuilderSettings.asset");
+            AssetDatabase.CreateAsset(_instance, settingsPath);
+            AssetDatabase.SaveAssets();
+            AssetDatabase.Refresh();
         }
         
         /// <summary>

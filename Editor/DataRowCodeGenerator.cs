@@ -29,7 +29,7 @@ namespace UGF.GameFramework.Data.Editor
                 throw new ArgumentException("输出路径不能为空", nameof(outputPath));
             }
             
-            var className = string.IsNullOrEmpty(tableInfo.ClassName) ? $"{tableInfo.TableName}DataRow" : $"{tableInfo.ClassName}DataRow";
+            var className = string.IsNullOrEmpty(tableInfo.ClassName) ? $"DR{tableInfo.TableName}" : $"DR{tableInfo.ClassName}";
             var code = GenerateCode(tableInfo, className, namespaceName);
             
             // 确保输出目录存在

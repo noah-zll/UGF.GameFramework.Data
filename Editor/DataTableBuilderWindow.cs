@@ -520,45 +520,13 @@ namespace UGF.GameFramework.Data.Editor
         
         private void LoadSettings()
         {
-            // 查找现有设置文件
-            string[] guids = AssetDatabase.FindAssets("t:DataTableBuilderSettings");
-            if (guids.Length > 0)
-            {
-                string path = AssetDatabase.GUIDToAssetPath(guids[0]);
-                m_Settings = AssetDatabase.LoadAssetAtPath<DataTableBuilderSettings>(path);
-            }
-            
-            // 如果没有找到设置文件，创建默认设置
-            if (m_Settings == null)
-            {
-                CreateDefaultSettings();
-            }
+            m_Settings = DataTableBuilderSettings.Instance;
             
             // 验证设置有效性
             ValidateAndFixSettings();
             
             // 同步设置到窗口变量
             SyncSettingsToWindow();
-        }
-        
-        private void CreateDefaultSettings()
-        {
-            m_Settings = CreateInstance<DataTableBuilderSettings>();
-            
-            // 设置默认值
-            m_Settings.ExcelDirectory = "Assets/Configs/Excel";
-            m_Settings.CodeOutputDirectory = "Assets/Scripts/Generated";
-            m_Settings.DataOutputDirectory = "Assets/StreamingAssets/DataTables";
-            
-            // 确保目录存在
-            string settingsDir = "Assets/Settings/UGF";
-            if (!Directory.Exists(settingsDir))
-                Directory.CreateDirectory(settingsDir);
-                
-            string settingsPath = Path.Combine(settingsDir, "DataTableBuilderSettings.asset");
-            AssetDatabase.CreateAsset(m_Settings, settingsPath);
-            AssetDatabase.SaveAssets();
-            AssetDatabase.Refresh();
         }
         
         private void SyncSettingsToWindow()
@@ -686,7 +654,7 @@ namespace UGF.GameFramework.Data.Editor
             {
                 string[] files = Directory.GetFiles(m_ExcelDirectory, "*.xlsx", SearchOption.AllDirectories)
                     .Concat(Directory.GetFiles(m_ExcelDirectory, "*.xls", SearchOption.AllDirectories))
-                    .Where(f => !Path.GetFileName(f).StartsWith("~$")) // 排除临时文件
+                    .Where(f => !Path.GetFileName(f).StartsWith("~$") && !Path.GetFileName(f).StartsWith("__")) // 排除临时文件和隐藏文件
                     .ToArray();
                     
                 foreach (string file in files)
