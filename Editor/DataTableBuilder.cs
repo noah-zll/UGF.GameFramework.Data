@@ -21,53 +21,59 @@ namespace UGF.GameFramework.Data.Editor
             /// Excel文件路径
             /// </summary>
             public string ExcelFilePath { get; set; }
-            
+
             /// <summary>
             /// 工作表名称（为空则使用第一个工作表）
             /// </summary>
             public string SheetName { get; set; }
-            
+
             /// <summary>
             /// 命名空间
             /// </summary>
             public string NamespaceName { get; set; } = "GameData";
-            
+
             /// <summary>
             /// 代码输出路径
             /// </summary>
             public string CodeOutputPath { get; set; } = "Assets/Scripts/DataTables";
-            
+
             /// <summary>
             /// 数据输出路径
             /// </summary>
             public string DataOutputPath { get; set; } = "Assets/StreamingAssets/DataTables";
-            
+
             /// <summary>
             /// 是否生成代码
             /// </summary>
             public bool GenerateCode { get; set; } = true;
-            
+
             /// <summary>
             /// 是否生成数据
             /// </summary>
             public bool GenerateData { get; set; } = true;
-            
+
             /// <summary>
             /// 是否覆盖已存在的文件
             /// </summary>
             public bool OverwriteExisting { get; set; } = true;
-            
+
             /// <summary>
             /// 是否自动生成枚举定义
             /// </summary>
             public bool GenerateEnums { get; set; } = true;
-            
+
             /// <summary>
             /// 枚举代码输出路径
             /// </summary>
             public string EnumOutputPath { get; set; } = "Assets/Scripts/Enums";
+
+            /// <summary>
+            /// 类型定义文件路径（TypeDefinitions.xlsx，可选）。
+            /// 配置后启用自定义类/结构体类型支持，用于解析、序列化与代码生成。
+            /// </summary>
+            public string TypeDefinitionFilePath { get; set; }
         }
-        
+
         /// <summary>
         /// 构建结果
         /// </summary>
@@ -78,28 +84,28 @@ namespace UGF.GameFramework.Data.Editor
             /// 是否成功
             /// </summary>
             public bool Success { get; set; }
-            
+
             /// <summary>
             /// 错误信息
             /// </summary>
             public string ErrorMessage { get; set; }
-            
+
             /// <summary>
             /// 生成的文件列表
             /// </summary>
             public List<string> GeneratedFiles { get; set; }
-            
+
             /// <summary>
             /// 表格信息
             /// </summary>
             public ExcelTableInfo TableInfo { get; set; }
-            
+
             public BuildResult()
             {
                 GeneratedFiles = new List<string>();
             }
         }
-        
+
         /// <summary>
         /// 构建单个数据表
         /// </summary>
@@ -108,7 +114,7 @@ namespace UGF.GameFramework.Data.Editor
         public static BuildResult BuildDataTable(BuildConfig config)
         {
             var result = new BuildResult();
-            
+
             try
             {
                 // 验证配置
@@ -117,14 +123,17 @@ namespace UGF.GameFramework.Data.Editor
                     result.ErrorMessage = validationError;
                     return result;
                 }
-                
+
+                // 加载类型定义（自定义类/结构体/枚举注册表）
+                LoadTypeDefinitions(config?.TypeDefinitionFilePath, config?.NamespaceName);
+
                 // 解析Excel文件
                 Debug.Log($"开始解析Excel文件: {config.ExcelFilePath}");
                 var tableInfo = ExcelParser.ParseExcel(config.ExcelFilePath, config.SheetName);
                 result.TableInfo = tableInfo;
-                
+
                 Debug.Log($"Excel解析完成，表名: {tableInfo.TableName}, 字段数: {tableInfo.Fields.Count}, 数据行数: {tableInfo.Rows.Count}");
-                
+
                 // 生成枚举定义
                 if (config.GenerateEnums)
                 {
@@ -135,7 +144,7 @@ namespace UGF.GameFramework.Data.Editor
                         Debug.Log($"已生成 {enumFiles.Count} 个枚举定义文件");
                     }
                 }
-                
+
                 // 生成代码
                 if (config.GenerateCode)
                 {
@@ -143,7 +152,7 @@ namespace UGF.GameFramework.Data.Editor
                     result.GeneratedFiles.Add(codeFilePath);
                     Debug.Log($"DataRow类已生成: {codeFilePath}");
                 }
-                
+
                 // 生成数据
                 if (config.GenerateData)
                 {
@@ -151,7 +160,7 @@ namespace UGF.GameFramework.Data.Editor
                     result.GeneratedFiles.Add(dataFilePath);
                     Debug.Log($"二进制数据已生成: {dataFilePath}");
                 }
-                
+
                 result.Success = true;
                 Debug.Log($"数据表构建完成: {tableInfo.TableName}");
             }
@@ -160,10 +169,91 @@ namespace UGF.GameFramework.Data.Editor
                 result.ErrorMessage = ex.Message;
                 Debug.LogError($"构建数据表失败: {ex}");
             }
-            
+
             return result;
         }
-        
+
+        /// <summary>
+        /// 加载类型定义文件到自定义类型注册表（类/结构体/枚举）
+        /// </summary>
+        public static void LoadTypeDefinitions(string typeDefinitionFilePath, string namespaceName)
+        {
+            CustomTypeRegistry.Clear();
+
+            if (string.IsNullOrEmpty(typeDefinitionFilePath))
+                return;
+
+            if (!File.Exists(typeDefinitionFilePath))
+            {
+                Debug.LogWarning($"类型定义文件不存在，跳过自定义类型支持: {typeDefinitionFilePath}");
+                return;
+            }
+
+            var result = TypeDefinitionParser.ParseTypeDefinitionFile(typeDefinitionFilePath, namespaceName);
+            if (!result.Success)
+            {
+                Debug.LogError($"类型定义文件解析失败: {result.ErrorMessage}");
+                return;
+            }
+
+            // 枚举
+            foreach (var enumDef in result.Enums)
+            {
+                CustomTypeRegistry.Register(new CustomTypeInfo
+                {
+                    Name = enumDef.Name,
+                    Kind = CustomTypeKind.Enum,
+                    Namespace = enumDef.Namespace
+                });
+            }
+
+            // 类
+            foreach (var classDef in result.Classes)
+            {
+                var info = new CustomTypeInfo
+                {
+                    Name = classDef.Name,
+                    Kind = CustomTypeKind.Class,
+                    Namespace = classDef.Namespace
+                };
+                foreach (var property in classDef.Properties)
+                {
+                    info.Members.Add(new CustomTypeMemberInfo
+                    {
+                        Name = property.Name,
+                        Type = property.Type,
+                        IsArray = property.IsArray,
+                        DefaultValue = property.DefaultValue
+                    });
+                }
+                CustomTypeRegistry.Register(info);
+            }
+
+            // 结构体
+            foreach (var structDef in result.Structs)
+            {
+                var info = new CustomTypeInfo
+                {
+                    Name = structDef.Name,
+                    Kind = CustomTypeKind.Struct,
+                    Namespace = structDef.Namespace
+                };
+                foreach (var field in structDef.Fields)
+                {
+                    info.Members.Add(new CustomTypeMemberInfo
+                    {
+                        Name = field.Name,
+                        Type = field.Type,
+                        IsArray = field.IsArray,
+                        DefaultValue = field.DefaultValue
+                    });
+                }
+                CustomTypeRegistry.Register(info);
+            }
+
+            Debug.Log($"已加载类型定义: {result.Enums.Count} 枚举, {result.Classes.Count} 类, {result.Structs.Count} 结构体");
+        }
+
         /// <summary>
         /// 批量构建数据表
         /// </summary>
@@ -172,21 +262,21 @@ namespace UGF.GameFramework.Data.Editor
         public static List<BuildResult> BuildDataTables(List<BuildConfig> configs)
         {
             var results = new List<BuildResult>();
-            
+
             foreach (var config in configs)
             {
                 var result = BuildDataTable(config);
                 results.Add(result);
-                
+
                 if (!result.Success)
                 {
                     Debug.LogError($"构建失败: {config.ExcelFilePath} - {result.ErrorMessage}");
                 }
             }
-            
+
             return results;
         }
-        
+
         /// <summary>
         /// 从目录批量构建
         /// </summary>
@@ -196,21 +286,21 @@ namespace UGF.GameFramework.Data.Editor
         public static List<BuildResult> BuildFromDirectory(string excelDirectory, BuildConfig baseConfig)
         {
             var results = new List<BuildResult>();
-            
+
             if (!Directory.Exists(excelDirectory))
             {
                 Debug.LogError($"Excel目录不存在: {excelDirectory}");
                 return results;
             }
-            
+
             var excelFiles = Directory.GetFiles(excelDirectory, "*.xlsx", SearchOption.AllDirectories);
-            
+
             foreach (var excelFile in excelFiles)
             {
                 // 跳过临时文件
                 if (Path.GetFileName(excelFile).StartsWith("~$"))
                     continue;
-                    
+
                 var config = new BuildConfig
                 {
                     ExcelFilePath = excelFile,
@@ -220,103 +310,104 @@ namespace UGF.GameFramework.Data.Editor
                     DataOutputPath = baseConfig.DataOutputPath,
                     GenerateCode = baseConfig.GenerateCode,
                     GenerateData = baseConfig.GenerateData,
-                    OverwriteExisting = baseConfig.OverwriteExisting
+                    OverwriteExisting = baseConfig.OverwriteExisting,
+                    TypeDefinitionFilePath = baseConfig.TypeDefinitionFilePath
                 };
-                
+
                 var result = BuildDataTable(config);
                 results.Add(result);
             }
-            
+
             return results;
         }
-        
+
         /// <summary>
         /// 验证构建配置
         /// </summary>
         private static bool ValidateConfig(BuildConfig config, out string errorMessage)
         {
             errorMessage = null;
-            
+
             if (config == null)
             {
                 errorMessage = "构建配置不能为空";
                 return false;
             }
-            
+
             if (string.IsNullOrEmpty(config.ExcelFilePath))
             {
                 errorMessage = "Excel文件路径不能为空";
                 return false;
             }
-            
+
             if (!File.Exists(config.ExcelFilePath))
             {
                 errorMessage = $"Excel文件不存在: {config.ExcelFilePath}";
                 return false;
             }
-            
+
             if (config.GenerateCode && string.IsNullOrEmpty(config.CodeOutputPath))
             {
                 errorMessage = "代码输出路径不能为空";
                 return false;
             }
-            
+
             if (config.GenerateData && string.IsNullOrEmpty(config.DataOutputPath))
             {
                 errorMessage = "数据输出路径不能为空";
                 return false;
             }
-            
+
             return true;
         }
-        
+
         /// <summary>
         /// 生成枚举定义文件
         /// </summary>
         private static List<string> GenerateEnumFiles(ExcelTableInfo tableInfo, BuildConfig config)
         {
             var generatedFiles = new List<string>();
-            
+
             try
             {
                 // 提取枚举信息
                 var enumInfos = EnumCodeGenerator.ExtractEnumInfo(tableInfo);
-                
+
                 if (enumInfos.Count == 0)
                 {
                     return generatedFiles;
                 }
-                
+
                 var absoluteEnumPath = Path.GetFullPath(config.EnumOutputPath);
-                
+
                 // 确保输出目录存在
                 if (!Directory.Exists(absoluteEnumPath))
                 {
                     Directory.CreateDirectory(absoluteEnumPath);
                 }
-                
+
                 // 生成每个枚举文件
                 foreach (var kvp in enumInfos)
                 {
                     var enumInfo = kvp.Value;
-                    
+
                     // 跳过没有值的枚举
                     if (enumInfo.Values.Count == 0)
                     {
                         Debug.LogWarning($"枚举 {enumInfo.Name} 没有找到任何值，跳过生成");
                         continue;
                     }
-                    
+
                     var fileName = $"{enumInfo.Name}.cs";
                     var filePath = Path.Combine(absoluteEnumPath, fileName);
-                    
+
                     // 检查文件是否已存在
                     if (File.Exists(filePath) && !config.OverwriteExisting)
                     {
                         Debug.LogWarning($"枚举文件已存在且不允许覆盖: {filePath}");
                         continue;
                     }
-                    
+
                     var code = EnumCodeGenerator.GenerateEnumCode(enumInfo, config.NamespaceName);
                     File.WriteAllText(filePath, code, System.Text.Encoding.UTF8);
                     generatedFiles.Add(filePath);
@@ -327,10 +418,10 @@ namespace UGF.GameFramework.Data.Editor
                 Debug.LogError($"生成枚举文件时发生错误: {ex.Message}");
                 throw;
             }
-            
+
             return generatedFiles;
         }
-        
+
         /// <summary>
         /// 生成代码文件
         /// </summary>
@@ -339,17 +430,17 @@ namespace UGF.GameFramework.Data.Editor
             var absoluteCodePath = Path.GetFullPath(config.CodeOutputPath);
             var className = string.IsNullOrEmpty(tableInfo.ClassName) ? $"DR{tableInfo.TableName}" : $"DR{tableInfo.ClassName}";
             var filePath = Path.Combine(absoluteCodePath, $"{className}.cs");
-            
+
             // 检查文件是否已存在
             if (File.Exists(filePath) && !config.OverwriteExisting)
             {
                 throw new InvalidOperationException($"代码文件已存在且不允许覆盖: {filePath}");
             }
-            
+
             DataRowCodeGenerator.GenerateDataRowClass(tableInfo, config.NamespaceName, absoluteCodePath);
             return filePath;
         }
-        
+
         /// <summary>
         /// 生成数据文件
         /// </summary>
@@ -358,23 +449,23 @@ namespace UGF.GameFramework.Data.Editor
             var absoluteDataPath = Path.GetFullPath(config.DataOutputPath);
             var fileName = string.IsNullOrEmpty(tableInfo.ClassName) ? $"{tableInfo.TableName}.bytes" : $"{tableInfo.ClassName}.bytes";
             var filePath = Path.Combine(absoluteDataPath, fileName);
-            
+
             // 检查文件是否已存在
             if (File.Exists(filePath) && !config.OverwriteExisting)
             {
                 throw new InvalidOperationException($"数据文件已存在且不允许覆盖: {filePath}");
             }
-            
+
             try
             {
                 BinaryDataSerializer.SerializeToBinary(tableInfo, absoluteDataPath);
-                
+
                 // 验证生成的文件
                 if (!File.Exists(filePath))
                 {
                     throw new InvalidOperationException($"二进制文件生成失败: {filePath}");
                 }
-                
+
                 // 验证文件格式
                 if (!BinaryDataSerializer.ValidateBinaryFile(filePath))
                 {
@@ -385,10 +476,10 @@ namespace UGF.GameFramework.Data.Editor
             {
                 throw new InvalidOperationException($"生成二进制数据文件时发生错误: {ex.Message}", ex);
             }
-            
+
             return filePath;
         }
-        
+
         /// <summary>
         /// 获取构建统计信息
         /// </summary>
@@ -400,7 +491,7 @@ namespace UGF.GameFramework.Data.Editor
             var successCount = 0;
             var failureCount = 0;
             var totalFiles = 0;
-            
+
             foreach (var result in results)
             {
                 if (result.Success)
@@ -413,7 +504,7 @@ namespace UGF.GameFramework.Data.Editor
                     failureCount++;
                 }
             }
-            
+
             return $"构建统计: 总数 {totalCount}, 成功 {successCount}, 失败 {failureCount}, 生成文件 {totalFiles} 个";
         }
     }

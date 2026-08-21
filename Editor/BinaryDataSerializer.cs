@@ -23,18 +23,18 @@ namespace UGF.GameFramework.Data.Editor
             {
                 throw new ArgumentNullException(nameof(tableInfo));
             }
-            
+
             if (string.IsNullOrEmpty(outputPath))
             {
                 throw new ArgumentException("输出路径不能为空", nameof(outputPath));
             }
-            
+
             // 确保输出目录存在
             Directory.CreateDirectory(outputPath);
-            
+
             var fileName = string.IsNullOrEmpty(tableInfo.ClassName) ? $"{tableInfo.TableName}.bytes" : $"{tableInfo.ClassName}.bytes";
             var filePath = Path.Combine(outputPath, fileName);
-            
+
             using (var fileStream = new FileStream(filePath, FileMode.Create, FileAccess.Write))
             {
                 using (var binaryWriter = new BinaryWriter(fileStream, Encoding.UTF8))
@@ -42,10 +42,10 @@ namespace UGF.GameFramework.Data.Editor
                     SerializeTableData(binaryWriter, tableInfo);
                 }
             }
-            
+
             Debug.Log($"二进制数据表已生成: {filePath}");
         }
-        
+
         /// <summary>
         /// 序列化表格数据
         /// </summary>
@@ -53,11 +53,11 @@ namespace UGF.GameFramework.Data.Editor
         {
             // 写入文件头信息
             WriteHeader(writer, tableInfo);
-            
+
             // 写入数据行
             WriteDataRows(writer, tableInfo);
         }
-        
+
         /// <summary>
         /// 写入文件头信息
         /// </summary>
@@ -65,16 +65,16 @@ namespace UGF.GameFramework.Data.Editor
         {
             // 写入魔数（用于验证文件格式）
             writer.Write(0x44544247); // "GBTD" (GameFramework Binary Table Data)
-            
+
             // 写入版本号
             writer.Write((byte)1);
-            
+
             // 写入表名
             writer.Write(tableInfo.TableName ?? string.Empty);
-            
+
             // 写入字段数量
             writer.Write(tableInfo.Fields.Count);
-            
+
             // 写入字段信息
             foreach (var field in tableInfo.Fields)
             {
@@ -83,11 +83,11 @@ namespace UGF.GameFramework.Data.Editor
                 writer.Write(field.Description ?? string.Empty);
                 writer.Write(field.IsPrimaryKey);
             }
-            
+
             // 写入数据行数量
             writer.Write(tableInfo.Rows.Count);
         }
-        
+
         /// <summary>
         /// 写入数据行
         /// </summary>
@@ -110,7 +110,7 @@ namespace UGF.GameFramework.Data.Editor
                 }
             }
         }
-        
+
         /// <summary>
         /// 写入字段值
         /// </summary>
@@ -121,16 +121,30 @@ namespace UGF.GameFramework.Data.Editor
                 WriteDefaultValue(writer, type);
                 return;
             }
-            
+
             try
             {
+                // 检查是否为集合类型（数组、List、字典）
+                if (SupportedDataTypes.IsCollectionType(type))
+                {
+                    WriteCollectionValue(writer, value, type);
+                    return;
+                }
+
+                // 检查是否为自定义类/结构体
+                if (SupportedDataTypes.IsCustomType(type))
+                {
+                    WriteCustomValue(writer, value, type);
+                    return;
+                }
+
                 // 检查是否为枚举类型
                 if (SupportedDataTypes.IsEnumType(type))
                 {
                     WriteEnumValue(writer, value, type);
                     return;
                 }
-                
+
                 switch (type.ToLower())
                 {
                     case SupportedDataTypes.Int:
@@ -168,7 +182,145 @@ namespace UGF.GameFramework.Data.Editor
                 WriteDefaultValue(writer, type);
             }
         }
-        
+
+        /// <summary>
+        /// 写入集合类型值（数组、List、字典）
+        /// 格式：先写元素数量，再依次写每个元素
+        /// </summary>
+        private static void WriteCollectionValue(BinaryWriter writer, object value, string type)
+        {
+            if (SupportedDataTypes.IsDictionaryType(type))
+            {
+                SupportedDataTypes.GetDictionaryTypes(type, out var keyType, out var valueType);
+
+                var dict = value as System.Collections.IDictionary;
+                if (dict == null)
+                {
+                    writer.Write(0);
+                    return;
+                }
+
+                writer.Write(dict.Count);
+                foreach (System.Collections.DictionaryEntry entry in dict)
+                {
+                    WriteElementValue(writer, entry.Key, keyType);
+                    WriteElementValue(writer, entry.Value, valueType);
+                }
+                return;
+            }
+
+            // 数组或List
+            var elementType = SupportedDataTypes.GetElementType(type);
+            var enumerable = value as System.Collections.IEnumerable;
+            if (enumerable == null)
+            {
+                writer.Write(0);
+                return;
+            }
+
+            var items = new List<object>();
+            foreach (var item in enumerable)
+            {
+                items.Add(item);
+            }
+
+            writer.Write(items.Count);
+            foreach (var item in items)
+            {
+                WriteElementValue(writer, item, elementType);
+            }
+        }
+
+        /// <summary>
+        /// 写入自定义类/结构体实例（按成员定义顺序递归写入）
+        /// </summary>
+        private static void WriteCustomValue(BinaryWriter writer, object value, string type)
+        {
+            if (!CustomTypeRegistry.TryGet(type, out var info))
+            {
+                WriteDefaultValue(writer, type);
+                return;
+            }
+
+            var dict = value as IDictionary<string, object>;
+            foreach (var member in info.Members)
+            {
+                var memberType = member.IsArray ? member.Type + "[]" : member.Type;
+                if (dict != null && dict.TryGetValue(member.Name, out var memberValue))
+                {
+                    WriteFieldValue(writer, memberValue, memberType);
+                }
+                else
+                {
+                    WriteDefaultValue(writer, memberType);
+                }
+            }
+        }
+
+        /// <summary>
+        /// 写入单个元素值（基础类型、枚举、集合或自定义类型，递归）
+        /// </summary>
+        private static void WriteElementValue(BinaryWriter writer, object value, string type)
+        {
+            if (value == null)
+            {
+                WriteDefaultValue(writer, type);
+                return;
+            }
+
+            // 集合类型（嵌套集合）：递归写入
+            if (SupportedDataTypes.IsCollectionType(type))
+            {
+                WriteCollectionValue(writer, value, type);
+                return;
+            }
+
+            // 自定义类/结构体
+            if (SupportedDataTypes.IsCustomType(type))
+            {
+                WriteCustomValue(writer, value, type);
+                return;
+            }
+
+            // 检查是否为枚举类型
+            if (SupportedDataTypes.IsEnumType(type))
+            {
+                WriteEnumValue(writer, value, type);
+                return;
+            }
+
+            switch (type.ToLower())
+            {
+                case SupportedDataTypes.Int:
+                    writer.Write(Convert.ToInt32(value));
+                    break;
+                case SupportedDataTypes.Float:
+                    writer.Write(Convert.ToSingle(value));
+                    break;
+                case SupportedDataTypes.String:
+                    writer.Write(value.ToString() ?? string.Empty);
+                    break;
+                case SupportedDataTypes.Bool:
+                    writer.Write(Convert.ToBoolean(value));
+                    break;
+                case SupportedDataTypes.Long:
+                    writer.Write(Convert.ToInt64(value));
+                    break;
+                case SupportedDataTypes.Double:
+                    writer.Write(Convert.ToDouble(value));
+                    break;
+                case SupportedDataTypes.Byte:
+                    writer.Write(Convert.ToByte(value));
+                    break;
+                case SupportedDataTypes.Short:
+                    writer.Write(Convert.ToInt16(value));
+                    break;
+                default:
+                    writer.Write(value.ToString() ?? string.Empty);
+                    break;
+            }
+        }
+
         /// <summary>
         /// 写入默认值
         /// </summary>
@@ -180,7 +332,27 @@ namespace UGF.GameFramework.Data.Editor
                 writer.Write(0); // 枚举默认值为0
                 return;
             }
-            
+
+            // 集合类型默认值为空集合（元素数量0）
+            if (SupportedDataTypes.IsCollectionType(type))
+            {
+                writer.Write(0);
+                return;
+            }
+
+            // 自定义类型默认实例（按成员定义顺序写入各成员默认值）
+            if (SupportedDataTypes.IsCustomType(type))
+            {
+                if (CustomTypeRegistry.TryGet(type, out var info))
+                {
+                    foreach (var member in info.Members)
+                    {
+                        WriteDefaultValue(writer, member.IsArray ? member.Type + "[]" : member.Type);
+                    }
+                }
+                return;
+            }
+
             switch (type.ToLower())
             {
                 case SupportedDataTypes.Int:
@@ -212,7 +384,7 @@ namespace UGF.GameFramework.Data.Editor
                     break;
             }
         }
-        
+
         /// <summary>
         /// 写入枚举值
         /// </summary>
@@ -221,7 +393,7 @@ namespace UGF.GameFramework.Data.Editor
             try
             {
                 var enumTypeName = SupportedDataTypes.GetEnumTypeName(type);
-                
+
                 // 如果值是字符串，尝试解析为枚举值
                 if (value is string stringValue)
                 {
@@ -231,7 +403,7 @@ namespace UGF.GameFramework.Data.Editor
                         writer.Write(intValue);
                         return;
                     }
-                    
+
                     // 如果有枚举类型名，尝试通过反射解析
                     if (!string.IsNullOrEmpty(enumTypeName))
                     {
@@ -245,7 +417,7 @@ namespace UGF.GameFramework.Data.Editor
                             }
                         }
                     }
-                    
+
                     // 如果无法解析，写入0
                     writer.Write(0);
                 }
@@ -261,7 +433,7 @@ namespace UGF.GameFramework.Data.Editor
                 writer.Write(0);
             }
         }
-        
+
         /// <summary>
         /// 验证二进制文件格式
         /// </summary>
@@ -271,7 +443,7 @@ namespace UGF.GameFramework.Data.Editor
         {
             if (!File.Exists(filePath))
                 return false;
-                
+
             try
             {
                 using (var fileStream = new FileStream(filePath, FileMode.Open, FileAccess.Read))
@@ -282,12 +454,12 @@ namespace UGF.GameFramework.Data.Editor
                         var magic = binaryReader.ReadInt32();
                         if (magic != 0x44544247) // "GBTD"
                             return false;
-                            
+
                         // 检查版本号
                         var version = binaryReader.ReadByte();
                         if (version != 1)
                             return false;
-                            
+
                         return true;
                     }
                 }
@@ -297,7 +469,7 @@ namespace UGF.GameFramework.Data.Editor
                 return false;
             }
         }
-        
+
         /// <summary>
         /// 读取二进制文件信息（用于调试）
         /// </summary>
@@ -307,7 +479,7 @@ namespace UGF.GameFramework.Data.Editor
         {
             if (!ValidateBinaryFile(filePath))
                 return "无效的二进制数据表文件";
-                
+
             try
             {
                 using (var fileStream = new FileStream(filePath, FileMode.Open, FileAccess.Read))
@@ -315,19 +487,19 @@ namespace UGF.GameFramework.Data.Editor
                     using (var binaryReader = new BinaryReader(fileStream, Encoding.UTF8))
                     {
                         var sb = new StringBuilder();
-                        
+
                         // 跳过魔数和版本号
                         binaryReader.ReadInt32();
                         binaryReader.ReadByte();
-                        
+
                         // 读取表名
                         var tableName = binaryReader.ReadString();
                         sb.AppendLine($"表名: {tableName}");
-                        
+
                         // 读取字段数量
                         var fieldCount = binaryReader.ReadInt32();
                         sb.AppendLine($"字段数量: {fieldCount}");
-                        
+
                         // 读取字段信息
                         sb.AppendLine("字段信息:");
                         for (int i = 0; i < fieldCount; i++)
@@ -336,14 +508,14 @@ namespace UGF.GameFramework.Data.Editor
                             var fieldType = binaryReader.ReadString();
                             var fieldDesc = binaryReader.ReadString();
                             var isPrimaryKey = binaryReader.ReadBoolean();
-                            
+
                             sb.AppendLine($"  {fieldName} ({fieldType}) - {fieldDesc} {(isPrimaryKey ? "[主键]" : "")}");
                         }
-                        
+
                         // 读取数据行数量
                         var rowCount = binaryReader.ReadInt32();
                         sb.AppendLine($"数据行数量: {rowCount}");
-                        
+
                         return sb.ToString();
                     }
                 }

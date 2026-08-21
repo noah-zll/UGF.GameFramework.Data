@@ -57,6 +57,45 @@ UGF GameFramework Data Tools 是为原生 GameFramework 框架设计的配置表
 - **double**: 双精度浮点数
 - **bool**: 布尔值 (true/false, 1/0)
 - **string**: 字符串
+- **byte**: 无符号字节
+- **short**: 16位整数
+- **枚举**: 自定义枚举类型（`enum:EnumTypeName` 或直接使用枚举类型名）
+- **数组**: `int[]`、`string[]`、`int[][]`、`List<int>[]`，元素支持基础类型、枚举、集合、自定义类型
+- **列表**: `List<int>`、`List<string>`、`List<List<int>>`，元素支持同上
+- **哈希集**: `HashSet<int>`、`HashSet<string>`，元素去重且无序
+- **字典**: `Dictionary<string,int>`、`Dictionary<int,List<string>>`，键值支持同上
+- **自定义类/结构体**: 配置类型定义文件后可用（见下文）
+
+### 集合类型（数组、列表、哈希集、字典）
+
+集合字段的值使用 **JSON 字面量** 书写：
+
+| 字段名 | Skills | Tags | Areas | Bonus | Matrix |
+|--------|--------|------|-------|-------|--------|
+| 类型   | int[]  | List<string> | HashSet<int> | Dictionary<string,int> | int[][] |
+| 描述   | 技能ID列表 | 标签列表 | 可用区域 | 属性加成 | 技能矩阵 |
+| 数据   | [1001,1002,1003] | ["攻击","防御"] | [1,2,3] | {"atk":100,"def":50} | [[1,2],[3,4]] |
+
+- 数组/List/HashSet 用 `[元素1,元素2]`，字典用 `{"键":值,...}`，键值间用 `:`
+- 字符串元素必须带双引号 `"`，内部转义 `\"`、`\\`
+- **嵌套集合**直接 JSON 嵌套（任意深度），如 `List<List<int>>` = `[[1,2],[3,4]]`、`Dictionary<string,List<int>>` = `{"atk":[1,2]}`
+- 空单元格 = 空集合（count 0）；`[]` / `{}` 也表示空集合
+- `HashSet` 元素自动去重；字典键重复后者覆盖前者
+- 二进制存储格式：先写元素数量，再依次写每个元素（字典先写键再写值）；嵌套集合递归
+- 完整类型规则见 [配表数据类型规则方案](配表数据类型规则方案.md)
+
+### 自定义类/结构体类型
+
+在 DataTableBuilder 中配置「类型定义文件」（TypeDefinitions.xlsx，含 Classes/Structs/Enums 工作表）后，字段类型可引用其中定义的类/结构体：
+
+| 字段名 | Stack | Stacks |
+|--------|-------|--------|
+| 类型   | ItemStack | List&lt;ItemStack&gt; |
+| 数据   | {"itemId":1,"count":5} | [{"itemId":1,"count":5},{"itemId":2,"count":3}] |
+
+- JSON 对象键与成员名大小写不敏感匹配；缺省成员取类型定义中的默认值
+- 成员本身支持基础类型、枚举、数组与集合，可继续嵌套
+- 未配置类型定义文件时，自定义类型名按宽松规则视为枚举（向后兼容）
 
 ### 主键字段
 
