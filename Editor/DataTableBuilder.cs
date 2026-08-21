@@ -337,7 +337,7 @@ namespace UGF.GameFramework.Data.Editor
         private static string GenerateCodeFile(ExcelTableInfo tableInfo, BuildConfig config)
         {
             var absoluteCodePath = Path.GetFullPath(config.CodeOutputPath);
-            var className = string.IsNullOrEmpty(tableInfo.ClassName) ? $"{tableInfo.TableName}DataRow" : $"{tableInfo.ClassName}DataRow";
+            var className = string.IsNullOrEmpty(tableInfo.ClassName) ? $"DR{tableInfo.TableName}" : $"DR{tableInfo.ClassName}";
             var filePath = Path.Combine(absoluteCodePath, $"{className}.cs");
             
             // 检查文件是否已存在
