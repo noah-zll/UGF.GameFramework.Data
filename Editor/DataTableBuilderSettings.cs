@@ -38,6 +38,16 @@ namespace UGF.GameFramework.Data.Editor
         [Header("类型定义配置")]
         [SerializeField, Tooltip("类型定义文件路径")]
         private string m_TypeDefinitionFilePath = "";
+
+        [Header("语言定义配置")]
+        [SerializeField, Tooltip("语言定义文件路径")]
+        private string m_LanguageDefinitionFilePath = "";
+
+        [SerializeField, Tooltip("语言输出目录")]
+        private string m_LanguageOutputDirectory = "Assets/StreamingAssets/Languages";
+
+        [SerializeField, Tooltip("选中的语言表（工作表名即语言名）")]
+        private List<string> m_SelectedLanguageSheets = new List<string>();
         
         [Header("类型和文件选择状态")]
         [SerializeField, Tooltip("选中的类型定义类型（枚举、类、结构体、常量）")]
@@ -124,6 +134,24 @@ namespace UGF.GameFramework.Data.Editor
             get => m_TypeDefinitionFilePath;
             set => m_TypeDefinitionFilePath = value;
         }
+
+        public string LanguageDefinitionFilePath
+        {
+            get => m_LanguageDefinitionFilePath;
+            set => m_LanguageDefinitionFilePath = value;
+        }
+
+        public string LanguageOutputDirectory
+        {
+            get => m_LanguageOutputDirectory;
+            set => m_LanguageOutputDirectory = value;
+        }
+
+        public List<string> SelectedLanguageSheets
+        {
+            get => m_SelectedLanguageSheets;
+            set => m_SelectedLanguageSheets = value;
+        }
         
         /// <summary>
         /// 选中的类型定义类型列表
@@ -193,6 +221,12 @@ namespace UGF.GameFramework.Data.Editor
                 
             if (m_SelectedTypeDefinitionFiles == null)
                 m_SelectedTypeDefinitionFiles = new List<string>();
+
+            if (string.IsNullOrEmpty(m_LanguageOutputDirectory))
+                m_LanguageOutputDirectory = "Assets/StreamingAssets/Languages";
+
+            if (m_SelectedLanguageSheets == null)
+                m_SelectedLanguageSheets = new List<string>();
                 
             // TypeDefinitionFilePath可以为空，不需要默认值
         }
@@ -392,6 +426,36 @@ namespace UGF.GameFramework.Data.Editor
             m_SelectedTypeDefinitionFiles.Clear();
         }
         
+        #endregion
+
+        #region 语言定义选择管理
+
+        public bool IsLanguageSheetSelected(string sheetName)
+        {
+            return !string.IsNullOrEmpty(sheetName) && m_SelectedLanguageSheets.Contains(sheetName);
+        }
+
+        public void SetLanguageSheetSelected(string sheetName, bool selected)
+        {
+            if (string.IsNullOrEmpty(sheetName)) return;
+
+            bool isCurrentlySelected = m_SelectedLanguageSheets.Contains(sheetName);
+
+            if (selected && !isCurrentlySelected)
+            {
+                m_SelectedLanguageSheets.Add(sheetName);
+            }
+            else if (!selected && isCurrentlySelected)
+            {
+                m_SelectedLanguageSheets.Remove(sheetName);
+            }
+        }
+
+        public void ClearLanguageSheetSelection()
+        {
+            m_SelectedLanguageSheets.Clear();
+        }
+
         #endregion
         
         private void OnValidate()

@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
+using System.Reflection;
 using OfficeOpenXml;
 using UnityEngine;
 using UGF.GameFramework.Data;
@@ -12,6 +14,9 @@ namespace UGF.GameFramework.Data.Editor
     /// </summary>
     public static class ExcelParser
     {
+        private static readonly Dictionary<string, Type> s_EnumTypeCache = new Dictionary<string, Type>(StringComparer.Ordinal);
+        private static readonly HashSet<string> s_EnumTypeAmbiguous = new HashSet<string>(StringComparer.Ordinal);
+
         /// <summary>
         /// 解析Excel文件
         /// </summary>
@@ -266,7 +271,7 @@ namespace UGF.GameFramework.Data.Editor
                 // 如果有枚举类型名，尝试通过反射解析
                 if (!string.IsNullOrEmpty(enumTypeName))
                 {
-                    var enumType = Type.GetType(enumTypeName);
+                    var enumType = ResolveEnumType(enumTypeName);
                     if (enumType != null && enumType.IsEnum)
                     {
                         if (Enum.TryParse(enumType, value, true, out var enumValue))
@@ -285,6 +290,115 @@ namespace UGF.GameFramework.Data.Editor
                 Debug.LogError($"第{row}行字段{fieldName}的枚举值'{value}'转换失败: {ex.Message}");
                 return 0;
             }
+        }
+
+        internal static Type ResolveEnumType(string enumTypeName)
+        {
+            if (string.IsNullOrWhiteSpace(enumTypeName)) return null;
+            if (s_EnumTypeAmbiguous.Contains(enumTypeName)) return null;
+
+            if (s_EnumTypeCache.TryGetValue(enumTypeName, out var cached))
+            {
+                return cached;
+            }
+
+            var direct = Type.GetType(enumTypeName, false);
+            if (direct != null && direct.IsEnum)
+            {
+                s_EnumTypeCache[enumTypeName] = direct;
+                return direct;
+            }
+
+            bool isFullName = enumTypeName.Contains(".") || enumTypeName.Contains("+") || enumTypeName.Contains(",");
+            string nestedVariant = null;
+            if (isFullName && enumTypeName.Contains(".") && !enumTypeName.Contains("+"))
+            {
+                int lastDot = enumTypeName.LastIndexOf('.');
+                if (lastDot > 0 && lastDot < enumTypeName.Length - 1)
+                {
+                    nestedVariant = enumTypeName.Substring(0, lastDot) + "+" + enumTypeName.Substring(lastDot + 1);
+                }
+            }
+
+            var matches = new List<Type>();
+
+            foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+            {
+                if (assembly == null || assembly.IsDynamic) continue;
+
+                Type[] types;
+                try
+                {
+                    types = assembly.GetTypes();
+                }
+                catch (ReflectionTypeLoadException ex)
+                {
+                    types = ex.Types;
+                }
+                catch
+                {
+                    continue;
+                }
+
+                if (types == null) continue;
+
+                foreach (var type in types)
+                {
+                    if (type == null) continue;
+                    if (!type.IsEnum) continue;
+
+                    if (isFullName)
+                    {
+                        if (string.Equals(type.FullName, enumTypeName, StringComparison.Ordinal) ||
+                            (!string.IsNullOrEmpty(nestedVariant) && string.Equals(type.FullName, nestedVariant, StringComparison.Ordinal)))
+                        {
+                            matches.Add(type);
+                        }
+                    }
+                    else
+                    {
+                        if (string.Equals(type.Name, enumTypeName, StringComparison.Ordinal))
+                        {
+                            matches.Add(type);
+                        }
+                    }
+                }
+            }
+
+            if (matches.Count == 1)
+            {
+                s_EnumTypeCache[enumTypeName] = matches[0];
+                return matches[0];
+            }
+
+            if (matches.Count > 1)
+            {
+                if (!isFullName)
+                {
+                    var filtered = matches
+                        .Where(t => t != null && (string.IsNullOrEmpty(t.Namespace) || !t.Namespace.StartsWith("System", StringComparison.Ordinal)))
+                        .ToList();
+
+                    if (filtered.Count == 1)
+                    {
+                        s_EnumTypeCache[enumTypeName] = filtered[0];
+                        return filtered[0];
+                    }
+
+                    if (filtered.Count > 1)
+                    {
+                        matches = filtered;
+                    }
+                }
+
+                s_EnumTypeAmbiguous.Add(enumTypeName);
+                Debug.LogWarning($"发现多个同名枚举 {enumTypeName}，无法自动解析，请在Excel类型中填写全名（含命名空间）。候选: {string.Join(", ", matches.Select(t => t.FullName))}");
+                s_EnumTypeCache[enumTypeName] = null;
+                return null;
+            }
+
+            s_EnumTypeCache[enumTypeName] = null;
+            return null;
         }
     }
 }

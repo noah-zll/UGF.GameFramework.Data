@@ -3,6 +3,9 @@ using System.IO;
 using System.Text;
 using UnityEngine;
 using UGF.GameFramework.Data;
+using System.Collections.Generic;
+using System.Linq;
+using System.Reflection;
 
 namespace UGF.GameFramework.Data.Editor
 {
@@ -11,6 +14,8 @@ namespace UGF.GameFramework.Data.Editor
     /// </summary>
     public static class DataRowCodeGenerator
     {
+        private static readonly Dictionary<string, string> s_EnumNamespaceCache = new Dictionary<string, string>(StringComparer.Ordinal);
+
         /// <summary>
         /// 生成DataRow类代码
         /// </summary>
@@ -61,6 +66,16 @@ namespace UGF.GameFramework.Data.Editor
             sb.AppendLine("using UnityGameFramework.Runtime;");
             sb.AppendLine("using System.IO;");
             sb.AppendLine();
+
+            var extraUsings = CollectExtraUsings(tableInfo, namespaceName);
+            if (extraUsings.Count > 0)
+            {
+                foreach (var ns in extraUsings)
+                {
+                    sb.AppendLine($"using {ns};");
+                }
+                sb.AppendLine();
+            }
             
             // 命名空间开始
             if (!string.IsNullOrEmpty(namespaceName))
@@ -139,6 +154,48 @@ namespace UGF.GameFramework.Data.Editor
             }
             
             return SupportedDataTypes.GetCSharpType(type);
+        }
+
+        private static List<string> CollectExtraUsings(ExcelTableInfo tableInfo, string currentNamespace)
+        {
+            var result = new HashSet<string>(StringComparer.Ordinal);
+            if (tableInfo?.Fields == null) return result.ToList();
+
+            foreach (var field in tableInfo.Fields)
+            {
+                if (!SupportedDataTypes.IsEnumType(field.Type)) continue;
+
+                var enumTypeName = SupportedDataTypes.GetEnumTypeName(field.Type);
+                
+                if (string.IsNullOrWhiteSpace(enumTypeName)) continue;
+
+                if (enumTypeName.Contains(".") || enumTypeName.Contains("+")) continue;
+
+                var enumNamespace = TryResolveEnumNamespace(enumTypeName);
+                if (string.IsNullOrEmpty(enumNamespace)) continue;
+                if (!string.IsNullOrEmpty(currentNamespace) && string.Equals(enumNamespace, currentNamespace, StringComparison.Ordinal)) continue;
+
+                result.Add(enumNamespace);
+            }
+
+            return result.OrderBy(n => n, StringComparer.Ordinal).ToList();
+        }
+
+        private static string TryResolveEnumNamespace(string enumShortName)
+        {
+            if (string.IsNullOrWhiteSpace(enumShortName)) return null;
+            if (s_EnumNamespaceCache.TryGetValue(enumShortName, out var cached)) return cached;
+
+            var enumType = ExcelParser.ResolveEnumType(enumShortName);
+            if (enumType == null || !enumType.IsEnum)
+            {
+                s_EnumNamespaceCache[enumShortName] = null;
+                return null;
+            }
+
+            var ns = enumType.Namespace;
+            s_EnumNamespaceCache[enumShortName] = string.IsNullOrEmpty(ns) ? null : ns;
+            return s_EnumNamespaceCache[enumShortName];
         }
         
         /// <summary>

@@ -159,6 +159,12 @@ namespace UGF.GameFramework.Data.Editor
         private string m_TypeDefinitionFilePath = "";
         private bool m_GenerateFromTypeDefinition = false;
         private TypeDefinitionParseResult m_TypeDefinitionParseResult;
+
+        // 语言定义表
+        private string m_LanguageDefinitionFilePath = "";
+        private string m_LanguageOutputPath = "Assets/StreamingAssets/Languages";
+        private LanguageDefinitionParseResult m_LanguageDefinitionParseResult;
+        private Dictionary<string, bool> m_LanguageSelection = new Dictionary<string, bool>();
         
         // 类型选择
         private bool m_GenerateEnums = true;
@@ -185,7 +191,7 @@ namespace UGF.GameFramework.Data.Editor
         
         // 标签页状态
         private int m_SelectedTabIndex = 0;
-        private readonly string[] m_TabNames = { "数据构建", "类型定义" };
+        private readonly string[] m_TabNames = { "数据构建", "类型定义", "语言定义" };
         
         // 构建结果
         private List<BuildResultInfo> m_BuildResults = new List<BuildResultInfo>();
@@ -572,6 +578,8 @@ namespace UGF.GameFramework.Data.Editor
             m_AutoRefresh = m_Settings.AutoRefresh;
             m_VerboseLogging = m_Settings.VerboseLogging;
             m_TypeDefinitionFilePath = m_Settings.TypeDefinitionFilePath ?? "";
+            m_LanguageDefinitionFilePath = m_Settings.LanguageDefinitionFilePath ?? "";
+            m_LanguageOutputPath = m_Settings.LanguageOutputDirectory ?? "Assets/StreamingAssets/Languages";
             
             // 同步选中的Excel文件列表
             if (m_Settings.SelectedExcelFiles != null && m_ExcelFiles != null)
@@ -635,6 +643,18 @@ namespace UGF.GameFramework.Data.Editor
                     Debug.LogWarning($"无法创建数据输出目录 {m_Settings.DataOutputDirectory}: {ex.Message}");
                 }
             }
+
+            if (!string.IsNullOrEmpty(m_Settings.LanguageOutputDirectory) && !Directory.Exists(m_Settings.LanguageOutputDirectory))
+            {
+                try
+                {
+                    Directory.CreateDirectory(m_Settings.LanguageOutputDirectory);
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogWarning($"无法创建语言输出目录 {m_Settings.LanguageOutputDirectory}: {ex.Message}");
+                }
+            }
         }
         
         private void SaveSettings()
@@ -647,6 +667,8 @@ namespace UGF.GameFramework.Data.Editor
             m_Settings.Namespace = m_Namespace;
             m_Settings.AutoRefresh = m_AutoRefresh;
             m_Settings.VerboseLogging = m_VerboseLogging;
+            m_Settings.LanguageDefinitionFilePath = m_LanguageDefinitionFilePath;
+            m_Settings.LanguageOutputDirectory = m_LanguageOutputPath;
             
             // 保存选中的Excel文件列表
             m_Settings.ClearSelectedExcelFiles();
@@ -658,6 +680,15 @@ namespace UGF.GameFramework.Data.Editor
                     {
                         m_Settings.AddSelectedExcelFile(excelFile.FilePath);
                     }
+                }
+            }
+
+            m_Settings.ClearLanguageSheetSelection();
+            foreach (var kvp in m_LanguageSelection)
+            {
+                if (kvp.Value)
+                {
+                    m_Settings.SetLanguageSheetSelected(kvp.Key, true);
                 }
             }
             
@@ -815,6 +846,9 @@ namespace UGF.GameFramework.Data.Editor
                     break;
                 case 1: // 类型定义
                     DrawTypeDefinitionTab();
+                    break;
+                case 2: // 语言定义
+                    DrawLanguageDefinitionTab();
                     break;
             }
             
@@ -2412,6 +2446,11 @@ namespace UGF.GameFramework.Data.Editor
         {
             DrawTypeDefinitionSection();
         }
+
+        private void DrawLanguageDefinitionTab()
+        {
+            DrawLanguageDefinitionSection();
+        }
         
         /// <summary>
         /// 判断文件是否为类型定义文件
@@ -2477,6 +2516,535 @@ namespace UGF.GameFramework.Data.Editor
             {
                 Debug.LogError($"自动检测类型定义文件时发生错误: {ex.Message}");
             }
+        }
+
+        private class LanguageDefinitionParseResult
+        {
+            public List<LanguageTable> Tables { get; } = new List<LanguageTable>();
+            public List<string> SkippedSheets { get; } = new List<string>();
+            public bool Success { get; set; }
+            public string ErrorMessage { get; set; }
+        }
+
+        private class LanguageTable
+        {
+            public string LanguageName { get; set; }
+            public List<LanguageEntry> Entries { get; } = new List<LanguageEntry>();
+            public List<string> DuplicateKeys { get; } = new List<string>();
+        }
+
+        private class LanguageEntry
+        {
+            public string Key { get; set; }
+            public string Value { get; set; }
+        }
+
+        private void DrawLanguageDefinitionSection()
+        {
+            EditorGUILayout.BeginVertical("box");
+
+            var headerStyle = new GUIStyle(EditorStyles.boldLabel)
+            {
+                fontSize = 14
+            };
+            EditorGUILayout.LabelField("🌐 语言定义表操作", headerStyle);
+
+            EditorGUILayout.Space(5);
+
+            EditorGUILayout.BeginHorizontal();
+            EditorGUILayout.LabelField("语言定义文件:", GUILayout.Width(100));
+
+            EditorGUI.BeginChangeCheck();
+            m_LanguageDefinitionFilePath = EditorGUILayout.TextField(m_LanguageDefinitionFilePath);
+            if (EditorGUI.EndChangeCheck())
+            {
+                m_LanguageDefinitionParseResult = null;
+                SaveSettings();
+            }
+
+            if (GUILayout.Button("选择", GUILayout.Width(60)))
+            {
+                var path = EditorUtility.OpenFilePanel("选择语言定义Excel文件", m_ExcelDirectory, "xlsx");
+                if (!string.IsNullOrEmpty(path))
+                {
+                    m_LanguageDefinitionFilePath = path;
+                    m_LanguageDefinitionParseResult = null;
+                    SaveSettings();
+                }
+            }
+            EditorGUILayout.EndHorizontal();
+
+            EditorGUILayout.BeginHorizontal();
+            EditorGUILayout.LabelField("语言输出目录:", GUILayout.Width(100));
+
+            EditorGUI.BeginChangeCheck();
+            m_LanguageOutputPath = EditorGUILayout.TextField(m_LanguageOutputPath);
+            if (EditorGUI.EndChangeCheck())
+            {
+                SaveSettings();
+            }
+
+            if (GUILayout.Button("浏览", GUILayout.Width(60)))
+            {
+                string selectedPath = EditorUtility.OpenFolderPanel("选择语言输出目录", m_LanguageOutputPath, "");
+                if (!string.IsNullOrEmpty(selectedPath))
+                {
+                    m_LanguageOutputPath = GetRelativePath(selectedPath);
+                    SaveSettings();
+                }
+            }
+            EditorGUILayout.EndHorizontal();
+
+            EditorGUILayout.Space(5);
+
+            EditorGUILayout.BeginHorizontal();
+
+            GUI.enabled = !string.IsNullOrEmpty(m_LanguageDefinitionFilePath) && File.Exists(m_LanguageDefinitionFilePath);
+            if (GUILayout.Button("解析语言表", GUILayout.Height(25)))
+            {
+                ParseLanguageDefinitionFile();
+            }
+
+            GUI.enabled = m_LanguageDefinitionParseResult != null &&
+                          m_LanguageDefinitionParseResult.Success &&
+                          m_LanguageDefinitionParseResult.Tables.Count > 0 &&
+                          !string.IsNullOrEmpty(m_LanguageOutputPath);
+            if (GUILayout.Button("生成语言文件", GUILayout.Height(25)))
+            {
+                GenerateLanguageFiles();
+            }
+
+            GUI.enabled = true;
+            EditorGUILayout.EndHorizontal();
+
+            EditorGUILayout.Space(10);
+
+            if (m_LanguageDefinitionParseResult != null)
+            {
+                DrawLanguageDefinitionParseResult();
+            }
+            else if (!string.IsNullOrEmpty(m_LanguageDefinitionFilePath))
+            {
+                EditorGUILayout.HelpBox("请点击\"解析语言表\"按钮来解析选中的文件", MessageType.Info);
+            }
+            else
+            {
+                EditorGUILayout.HelpBox("请选择一个包含语言表的Excel文件（每个工作表即一个语言，且包含 key / value 两列）", MessageType.Info);
+            }
+
+            EditorGUILayout.EndVertical();
+            EditorGUILayout.Space(10);
+        }
+
+        private void ParseLanguageDefinitionFile()
+        {
+            if (string.IsNullOrEmpty(m_LanguageDefinitionFilePath) || !File.Exists(m_LanguageDefinitionFilePath))
+            {
+                UpdateStatus("语言定义文件不存在");
+                return;
+            }
+
+            try
+            {
+                StartBuildProgress("解析语言定义文件...");
+
+                var result = new LanguageDefinitionParseResult();
+
+                using (var package = new ExcelPackage(new FileInfo(m_LanguageDefinitionFilePath)))
+                {
+                    foreach (var worksheet in package.Workbook.Worksheets)
+                    {
+                        if (worksheet == null) continue;
+
+                        int rowCount = worksheet.Dimension?.Rows ?? 0;
+                        int colCount = worksheet.Dimension?.Columns ?? 0;
+                        if (rowCount <= 0 || colCount <= 0) continue;
+
+                        if (!TryFindKeyValueColumns(worksheet, out int headerRow, out int keyCol, out int valueCol))
+                        {
+                            result.SkippedSheets.Add(worksheet.Name);
+                            continue;
+                        }
+
+                        var table = new LanguageTable { LanguageName = worksheet.Name };
+                        var keySet = new HashSet<string>(StringComparer.Ordinal);
+
+                        for (int row = headerRow + 1; row <= rowCount; row++)
+                        {
+                            string key = worksheet.Cells[row, keyCol].Text?.Trim();
+                            if (string.IsNullOrEmpty(key)) continue;
+
+                            string value = worksheet.Cells[row, valueCol].Text ?? string.Empty;
+
+                            if (!keySet.Add(key))
+                            {
+                                table.DuplicateKeys.Add(key);
+                                continue;
+                            }
+
+                            table.Entries.Add(new LanguageEntry
+                            {
+                                Key = key,
+                                Value = value
+                            });
+                        }
+
+                        result.Tables.Add(table);
+                    }
+                }
+
+                if (result.Tables.Count == 0)
+                {
+                    result.Success = false;
+                    result.ErrorMessage = "未找到包含 key / value 列的工作表";
+                    m_LanguageDefinitionParseResult = result;
+                    UpdateStatus("解析失败：未找到有效语言表");
+                    AddBuildResult(BuildOperationType.Parse, false, Path.GetFileName(m_LanguageDefinitionFilePath), result.ErrorMessage);
+                    return;
+                }
+
+                result.Success = true;
+                m_LanguageDefinitionParseResult = result;
+                LoadLanguageSelectionFromSettings();
+
+                int entryCount = result.Tables.Sum(t => t.Entries.Count);
+                int duplicateCount = result.Tables.Sum(t => t.DuplicateKeys.Count);
+                UpdateStatus($"解析完成：{result.Tables.Count} 个语言，{entryCount} 条，重复Key {duplicateCount} 个");
+
+                var details = new StringBuilder();
+                if (result.SkippedSheets.Count > 0)
+                {
+                    details.AppendLine($"跳过工作表（未找到 key/value 表头）: {string.Join(", ", result.SkippedSheets)}");
+                }
+                AddBuildResult(BuildOperationType.Parse, true, Path.GetFileName(m_LanguageDefinitionFilePath),
+                    $"成功解析语言表：{result.Tables.Count} 个语言，{entryCount} 条", details.Length > 0 ? details.ToString() : null);
+            }
+            catch (Exception ex)
+            {
+                UpdateStatus($"解析失败: {ex.Message}");
+                m_LanguageDefinitionParseResult = new LanguageDefinitionParseResult
+                {
+                    Success = false,
+                    ErrorMessage = ex.Message
+                };
+                AddBuildResult(BuildOperationType.Parse, false, Path.GetFileName(m_LanguageDefinitionFilePath), $"解析异常: {ex.Message}");
+                Debug.LogError($"解析语言定义文件失败: {ex}");
+            }
+            finally
+            {
+                CompleteBuildProgress();
+            }
+        }
+
+        private void DrawLanguageDefinitionParseResult()
+        {
+            if (m_LanguageDefinitionParseResult == null) return;
+
+            if (!m_LanguageDefinitionParseResult.Success)
+            {
+                EditorGUILayout.HelpBox(m_LanguageDefinitionParseResult.ErrorMessage ?? "解析失败", MessageType.Error);
+                return;
+            }
+
+            EditorGUILayout.BeginVertical("box");
+            EditorGUILayout.LabelField("📊 解析结果", EditorStyles.boldLabel);
+
+            int languageCount = m_LanguageDefinitionParseResult.Tables.Count;
+            int entryCount = m_LanguageDefinitionParseResult.Tables.Sum(t => t.Entries.Count);
+            int duplicateCount = m_LanguageDefinitionParseResult.Tables.Sum(t => t.DuplicateKeys.Count);
+
+            EditorGUILayout.LabelField($"语言数量: {languageCount}，总条目: {entryCount}，重复Key: {duplicateCount}", EditorStyles.miniLabel);
+            EditorGUILayout.EndVertical();
+
+            EditorGUILayout.Space(5);
+
+            EditorGUILayout.BeginVertical("box");
+            EditorGUILayout.LabelField("✅ 选择要输出的语言", EditorStyles.boldLabel);
+
+            EditorGUILayout.BeginHorizontal();
+            if (GUILayout.Button("✅ 全选", GUILayout.Width(80)))
+            {
+                foreach (var table in m_LanguageDefinitionParseResult.Tables)
+                {
+                    m_LanguageSelection[table.LanguageName] = true;
+                }
+                SaveSettings();
+            }
+            if (GUILayout.Button("❌ 全不选", GUILayout.Width(80)))
+            {
+                foreach (var table in m_LanguageDefinitionParseResult.Tables)
+                {
+                    m_LanguageSelection[table.LanguageName] = false;
+                }
+                SaveSettings();
+            }
+            GUILayout.FlexibleSpace();
+            EditorGUILayout.EndHorizontal();
+
+            EditorGUILayout.Space(3);
+
+            foreach (var table in m_LanguageDefinitionParseResult.Tables)
+            {
+                if (!m_LanguageSelection.ContainsKey(table.LanguageName))
+                {
+                    m_LanguageSelection[table.LanguageName] = true;
+                }
+
+                string fileName = $"{SanitizeFileName(table.LanguageName)}.json";
+                string filePath = Path.Combine(m_LanguageOutputPath, fileName);
+                string label = $"  📄 {table.LanguageName}（{table.Entries.Count} 条）";
+                if (table.DuplicateKeys.Count > 0)
+                {
+                    label += $"  ⚠️ 重复Key {table.DuplicateKeys.Count}";
+                }
+
+                EditorGUI.BeginChangeCheck();
+                bool selected = EditorGUILayout.ToggleLeft(label, m_LanguageSelection[table.LanguageName]);
+                if (EditorGUI.EndChangeCheck())
+                {
+                    m_LanguageSelection[table.LanguageName] = selected;
+                    SaveSettings();
+                }
+
+                EditorGUILayout.LabelField($"      输出: {filePath}", EditorStyles.miniLabel);
+            }
+
+            EditorGUILayout.EndVertical();
+
+            if (m_LanguageDefinitionParseResult.SkippedSheets.Count > 0)
+            {
+                EditorGUILayout.Space(5);
+                EditorGUILayout.HelpBox($"已跳过 {m_LanguageDefinitionParseResult.SkippedSheets.Count} 个工作表（未找到 key/value 表头）: {string.Join(", ", m_LanguageDefinitionParseResult.SkippedSheets)}", MessageType.Warning);
+            }
+        }
+
+        private void LoadLanguageSelectionFromSettings()
+        {
+            m_LanguageSelection.Clear();
+
+            if (m_LanguageDefinitionParseResult == null || m_LanguageDefinitionParseResult.Tables == null) return;
+
+            bool hasSaved = m_Settings != null && m_Settings.SelectedLanguageSheets != null && m_Settings.SelectedLanguageSheets.Count > 0;
+            HashSet<string> parsedNames = new HashSet<string>(m_LanguageDefinitionParseResult.Tables.Select(t => t.LanguageName));
+            bool hasOverlap = hasSaved && m_Settings.SelectedLanguageSheets.Any(n => parsedNames.Contains(n));
+
+            foreach (var table in m_LanguageDefinitionParseResult.Tables)
+            {
+                bool selected = true;
+                if (hasOverlap && m_Settings != null)
+                {
+                    selected = m_Settings.IsLanguageSheetSelected(table.LanguageName);
+                }
+                m_LanguageSelection[table.LanguageName] = selected;
+            }
+
+            SaveSettings();
+        }
+
+        private void GenerateLanguageFiles()
+        {
+            if (m_LanguageDefinitionParseResult == null || !m_LanguageDefinitionParseResult.Success)
+            {
+                UpdateStatus("请先解析语言表");
+                return;
+            }
+
+            if (string.IsNullOrEmpty(m_LanguageOutputPath))
+            {
+                UpdateStatus("语言输出目录为空");
+                return;
+            }
+
+            var selectedTables = m_LanguageDefinitionParseResult.Tables
+                .Where(t => m_LanguageSelection.TryGetValue(t.LanguageName, out bool selected) && selected)
+                .ToList();
+
+            if (selectedTables.Count == 0)
+            {
+                AddBuildResult(BuildOperationType.Other, false, "没有选择任何语言表");
+                return;
+            }
+
+            try
+            {
+                StartBuildProgress("生成语言文件...");
+
+                if (!Directory.Exists(m_LanguageOutputPath))
+                {
+                    Directory.CreateDirectory(m_LanguageOutputPath);
+                }
+
+                int generatedCount = 0;
+                int failedCount = 0;
+
+                foreach (var table in selectedTables)
+                {
+                    if (table.DuplicateKeys.Count > 0)
+                    {
+                        failedCount++;
+                        AddBuildResult(BuildOperationType.Other, false, table.LanguageName, "生成失败：存在重复Key",
+                            $"重复Key示例: {string.Join(", ", table.DuplicateKeys.Take(10))}");
+                        continue;
+                    }
+
+                    string fileName = $"{SanitizeFileName(table.LanguageName)}.json";
+                    string outputPath = Path.Combine(m_LanguageOutputPath, fileName);
+
+                    string json = SerializeLanguageToJson(table);
+                    File.WriteAllText(outputPath, json, Encoding.UTF8);
+
+                    generatedCount++;
+
+                    var fileInfo = new FileInfo(outputPath);
+                    var statistics = new BuildStatistics
+                    {
+                        DataRowCount = table.Entries.Count,
+                        DataFileSize = fileInfo.Length,
+                        GeneratedFileCount = 1
+                    };
+
+                    AddBuildResult(BuildOperationType.Other, true, table.LanguageName, "语言文件生成成功",
+                        $"输出路径: {outputPath}", new List<string> { outputPath }, 0, statistics);
+                }
+
+                AddBuildResult(BuildOperationType.Other, failedCount == 0,
+                    $"{selectedTables.Count} 个语言", $"生成完成：成功 {generatedCount}，失败 {failedCount}");
+
+                UpdateStatus($"语言文件生成完成：成功 {generatedCount}，失败 {failedCount}");
+
+                if (m_AutoRefresh && m_LanguageOutputPath.Replace("\\", "/").StartsWith("Assets/"))
+                {
+                    AssetDatabase.Refresh();
+                }
+            }
+            catch (Exception ex)
+            {
+                UpdateStatus($"生成失败: {ex.Message}");
+                AddBuildResult(BuildOperationType.Other, false, "生成语言文件失败", ex.Message);
+                Debug.LogError($"生成语言文件失败: {ex}");
+            }
+            finally
+            {
+                CompleteBuildProgress();
+            }
+        }
+
+        private static bool TryFindKeyValueColumns(ExcelWorksheet worksheet, out int headerRow, out int keyCol, out int valueCol)
+        {
+            headerRow = -1;
+            keyCol = -1;
+            valueCol = -1;
+
+            int rowCount = worksheet.Dimension?.Rows ?? 0;
+            int colCount = worksheet.Dimension?.Columns ?? 0;
+
+            int maxRows = Math.Min(rowCount, 10);
+            int maxCols = Math.Min(colCount, 50);
+
+            for (int row = 1; row <= maxRows; row++)
+            {
+                int foundKey = -1;
+                int foundValue = -1;
+
+                for (int col = 1; col <= maxCols; col++)
+                {
+                    string text = worksheet.Cells[row, col].Text?.Trim();
+                    if (string.IsNullOrEmpty(text)) continue;
+
+                    if (foundKey == -1 && string.Equals(text, "key", StringComparison.OrdinalIgnoreCase))
+                    {
+                        foundKey = col;
+                    }
+                    else if (foundValue == -1 && string.Equals(text, "value", StringComparison.OrdinalIgnoreCase))
+                    {
+                        foundValue = col;
+                    }
+                }
+
+                if (foundKey != -1 && foundValue != -1)
+                {
+                    headerRow = row;
+                    keyCol = foundKey;
+                    valueCol = foundValue;
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static string SerializeLanguageToJson(LanguageTable table)
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("{");
+
+            for (int i = 0; i < table.Entries.Count; i++)
+            {
+                var entry = table.Entries[i];
+                string key = EscapeJsonString(entry.Key ?? string.Empty);
+                string value = EscapeJsonString(entry.Value ?? string.Empty);
+
+                sb.Append("  \"").Append(key).Append("\": \"").Append(value).Append("\"");
+                if (i < table.Entries.Count - 1) sb.Append(",");
+                sb.AppendLine();
+            }
+
+            sb.AppendLine("}");
+            return sb.ToString();
+        }
+
+        private static string EscapeJsonString(string value)
+        {
+            if (string.IsNullOrEmpty(value)) return string.Empty;
+
+            var sb = new StringBuilder(value.Length + 16);
+            for (int i = 0; i < value.Length; i++)
+            {
+                char c = value[i];
+                switch (c)
+                {
+                    case '\\': sb.Append("\\\\"); break;
+                    case '"': sb.Append("\\\""); break;
+                    case '\n': sb.Append("\\n"); break;
+                    case '\r': sb.Append("\\r"); break;
+                    case '\t': sb.Append("\\t"); break;
+                    default:
+                        if (c < ' ')
+                        {
+                            sb.Append("\\u").Append(((int)c).ToString("x4"));
+                        }
+                        else
+                        {
+                            sb.Append(c);
+                        }
+                        break;
+                }
+            }
+            return sb.ToString();
+        }
+
+        private static string SanitizeFileName(string name)
+        {
+            if (string.IsNullOrWhiteSpace(name)) return "Language";
+
+            char[] invalid = Path.GetInvalidFileNameChars();
+            var sb = new StringBuilder(name.Length);
+
+            for (int i = 0; i < name.Length; i++)
+            {
+                char c = name[i];
+                if (invalid.Contains(c))
+                {
+                    sb.Append('_');
+                }
+                else
+                {
+                    sb.Append(c);
+                }
+            }
+
+            string result = sb.ToString().Trim();
+            return string.IsNullOrEmpty(result) ? "Language" : result;
         }
         
         /// <summary>
