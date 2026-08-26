@@ -59,6 +59,12 @@ namespace UGF.GameFramework.Data.Editor
                 return null;
             }
 
+            // 引用类型 @表名：按目标表主键类型取默认值
+            if (SupportedDataTypes.IsReferenceType(type))
+            {
+                type = ResolveReferencePrimaryKeyType(type);
+            }
+
             switch (type.ToLower())
             {
                 case SupportedDataTypes.Int: return 0;
@@ -210,6 +216,12 @@ namespace UGF.GameFramework.Data.Editor
         {
             SkipWs(ctx);
 
+            // 引用类型 @表名：按目标表主键的基础类型解析
+            if (SupportedDataTypes.IsReferenceType(type))
+            {
+                type = ResolveReferencePrimaryKeyType(type);
+            }
+
             // 枚举：数字或名字（带引号或裸 token）
             if (SupportedDataTypes.IsEnumType(type))
                 return ParseEnum(ctx, type);
@@ -261,6 +273,17 @@ namespace UGF.GameFramework.Data.Editor
         }
 
         // ==================== 基础类型转换 ====================
+
+        /// <summary>
+        /// 解析引用类型 @表名 为目标表主键的基础类型（未注册回退 string）
+        /// </summary>
+        private static string ResolveReferencePrimaryKeyType(string type)
+        {
+            var targetTable = SupportedDataTypes.GetReferenceTargetTable(type);
+            if (ReferenceTypeRegistry.TryGetPrimaryKeyType(targetTable, out var pkType))
+                return pkType;
+            return SupportedDataTypes.String;
+        }
 
         private static object ConvertStringToValue(string str, string type)
         {

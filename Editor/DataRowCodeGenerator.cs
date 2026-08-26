@@ -74,6 +74,10 @@ namespace UGF.GameFramework.Data.Editor
             sb.AppendLine("using UnityGameFramework.Runtime;");
             sb.AppendLine("using System.IO;");
             sb.AppendLine("using System.Collections.Generic;");
+            if (HasReferenceField(tableInfo))
+            {
+                sb.AppendLine("using UGF.GameFramework.Data;");
+            }
             sb.AppendLine();
 
             var extraUsings = CollectExtraUsings(tableInfo, namespaceName);
@@ -104,6 +108,9 @@ namespace UGF.GameFramework.Data.Editor
 
             // 生成属性
             GenerateProperties(sb, tableInfo);
+
+            // 生成关系字段强类型查询方法
+            GenerateRelationMethods(sb, tableInfo);
 
             // 生成ParseDataRow方法
             GenerateParseDataRowMethod(sb, tableInfo);
@@ -148,6 +155,168 @@ namespace UGF.GameFramework.Data.Editor
                 // 属性定义
                 sb.AppendLine($"        public {csharpType} {field.Name} {{ get; private set; }}");
             }
+        }
+
+        /// <summary>
+        /// 表中是否存在引用类型字段（@表名，含集合元素/字典键值）
+        /// </summary>
+        private static bool HasReferenceField(ExcelTableInfo tableInfo)
+        {
+            if (tableInfo?.Fields == null)
+                return false;
+
+            foreach (var field in tableInfo.Fields)
+            {
+                if (ContainsReferenceType(field.Type))
+                    return true;
+            }
+            return false;
+        }
+
+        private static bool ContainsReferenceType(string type)
+        {
+            if (SupportedDataTypes.IsReferenceType(type))
+                return true;
+
+            if (SupportedDataTypes.IsDictionaryType(type))
+            {
+                SupportedDataTypes.GetDictionaryTypes(type, out var keyType, out var valueType);
+                return SupportedDataTypes.IsReferenceType(keyType) || SupportedDataTypes.IsReferenceType(valueType);
+            }
+
+            if (SupportedDataTypes.IsCollectionType(type))
+            {
+                return SupportedDataTypes.IsReferenceType(SupportedDataTypes.GetElementType(type));
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// 生成关系字段强类型查询方法
+        /// 支持：@Drop（1:1）、List&lt;@Drop&gt;/@Drop[]/HashSet&lt;@Drop&gt;（1:N）、字典键/值为引用（按key查询）
+        /// </summary>
+        private static void GenerateRelationMethods(StringBuilder sb, ExcelTableInfo tableInfo)
+        {
+            var usedNames = new HashSet<string>(StringComparer.Ordinal);
+
+            foreach (var field in tableInfo.Fields)
+            {
+                if (SupportedDataTypes.IsReferenceType(field.Type))
+                {
+                    var target = SupportedDataTypes.GetReferenceTargetTable(field.Type);
+                    EmitRelationMethod(sb, tableInfo, field, target, false, ref usedNames);
+                }
+                else if (SupportedDataTypes.IsCollectionType(field.Type) && !SupportedDataTypes.IsDictionaryType(field.Type))
+                {
+                    var elementType = SupportedDataTypes.GetElementType(field.Type);
+                    if (SupportedDataTypes.IsReferenceType(elementType))
+                    {
+                        var target = SupportedDataTypes.GetReferenceTargetTable(elementType);
+                        EmitRelationMethod(sb, tableInfo, field, target, true, ref usedNames);
+                    }
+                }
+                else if (SupportedDataTypes.IsDictionaryType(field.Type))
+                {
+                    SupportedDataTypes.GetDictionaryTypes(field.Type, out var keyType, out var valueType);
+                    if (SupportedDataTypes.IsReferenceType(keyType))
+                    {
+                        var target = SupportedDataTypes.GetReferenceTargetTable(keyType);
+                        EmitRelationMethodByKey(sb, tableInfo, field, target, ref usedNames);
+                    }
+                    else if (SupportedDataTypes.IsReferenceType(valueType))
+                    {
+                        var target = SupportedDataTypes.GetReferenceTargetTable(valueType);
+                        EmitRelationMethodByKey(sb, tableInfo, field, target, ref usedNames);
+                    }
+                }
+            }
+        }
+
+        private static string GetTargetClassName(string targetTable)
+        {
+            return "DR" + targetTable;
+        }
+
+        private static string GetReferencePkCSharpType(string targetTable)
+        {
+            if (ReferenceTypeRegistry.TryGetPrimaryKeyType(targetTable, out var pkType))
+            {
+                var csharp = SupportedDataTypes.GetCSharpType(pkType);
+                return string.IsNullOrEmpty(csharp) ? "int" : csharp;
+            }
+            return "int";
+        }
+
+        /// <summary>
+        /// 生成 1:1 / 1:N 强类型查询方法
+        /// </summary>
+        private static void EmitRelationMethod(StringBuilder sb, ExcelTableInfo tableInfo, ExcelFieldInfo field,
+            string targetTable, bool isCollection, ref HashSet<string> usedNames)
+        {
+            var targetClass = GetTargetClassName(targetTable);
+            var baseName = isCollection ? $"Get{targetTable}s" : $"Get{targetTable}";
+            var methodName = usedNames.Contains(baseName) ? $"Get{targetTable}_{field.Name}" : baseName;
+            usedNames.Add(methodName);
+
+            var relationName = $"{tableInfo.TableName}_{targetTable}_{field.Name}";
+            var indent = "        ";
+
+            sb.AppendLine();
+            sb.AppendLine($"{indent}/// <summary>");
+            sb.AppendLine($"{indent}/// 关系字段：{targetTable}（{(isCollection ? "一对多" : "一对一")}，目标表主键）");
+            sb.AppendLine($"{indent}/// </summary>");
+            sb.AppendLine($"{indent}/// <returns>{(isCollection ? "目标表行数组" : "目标表行")}</returns>");
+            sb.AppendLine($"{indent}public {targetClass}{(isCollection ? "[]" : "")} {methodName}()");
+            sb.AppendLine($"{indent}{{");
+
+            if (isCollection)
+            {
+                var countExpr = SupportedDataTypes.IsArrayType(field.Type) ? "list.Length" : "list.Count";
+                sb.AppendLine($"{indent}    var list = {field.Name};");
+                sb.AppendLine($"{indent}    if (list == null) return new {targetClass}[0];");
+                sb.AppendLine($"{indent}    var result = new {targetClass}[{countExpr}];");
+                sb.AppendLine($"{indent}    for (var i = 0; i < {countExpr}; i++)");
+                sb.AppendLine($"{indent}    {{");
+                sb.AppendLine($"{indent}        result[i] = GameEntry.GetComponent<DataTableComponent>().GetRelatedOne(\"{relationName}\", list[i]) as {targetClass};");
+                sb.AppendLine($"{indent}    }}");
+                sb.AppendLine($"{indent}    return result;");
+            }
+            else
+            {
+                sb.AppendLine($"{indent}    var row = GameEntry.GetComponent<DataTableComponent>().GetRelatedOne(\"{relationName}\", {field.Name});");
+                sb.AppendLine($"{indent}    return row as {targetClass};");
+            }
+
+            sb.AppendLine($"{indent}}}");
+        }
+
+        /// <summary>
+        /// 生成字典键/值为引用的强类型查询方法（按 key 查询）
+        /// </summary>
+        private static void EmitRelationMethodByKey(StringBuilder sb, ExcelTableInfo tableInfo, ExcelFieldInfo field,
+            string targetTable, ref HashSet<string> usedNames)
+        {
+            var targetClass = GetTargetClassName(targetTable);
+            var baseName = $"Get{targetTable}";
+            var methodName = usedNames.Contains(baseName) ? $"Get{targetTable}_{field.Name}" : baseName;
+            usedNames.Add(methodName);
+
+            var relationName = $"{tableInfo.TableName}_{targetTable}_{field.Name}";
+            var pkType = GetReferencePkCSharpType(targetTable);
+            var indent = "        ";
+
+            sb.AppendLine();
+            sb.AppendLine($"{indent}/// <summary>");
+            sb.AppendLine($"{indent}/// 关系字段：{targetTable}（字典引用，按 {pkType} 键查询目标表）");
+            sb.AppendLine($"{indent}/// </summary>");
+            sb.AppendLine($"{indent}/// <param name=\"key\">目标表主键</param>");
+            sb.AppendLine($"{indent}/// <returns>目标表行</returns>");
+            sb.AppendLine($"{indent}public {targetClass} {methodName}({pkType} key)");
+            sb.AppendLine($"{indent}{{");
+            sb.AppendLine($"{indent}    var row = GameEntry.GetComponent<DataTableComponent>().GetRelatedOne(\"{relationName}\", key);");
+            sb.AppendLine($"{indent}    return row as {targetClass};");
+            sb.AppendLine($"{indent}}}");
         }
 
         /// <summary>
@@ -355,6 +524,9 @@ namespace UGF.GameFramework.Data.Editor
                 return "ReadInt32"; // 枚举类型以int形式存储
             }
 
+            // 引用类型 @表名：按目标表主键类型读取
+            type = SupportedDataTypes.ResolveReferenceType(type);
+
             switch (type.ToLower())
             {
                 case SupportedDataTypes.Int:
@@ -521,6 +693,9 @@ namespace UGF.GameFramework.Data.Editor
                 }
                 return "binaryReader.ReadInt32()";
             }
+
+            // 引用类型 @表名：按目标表主键类型读取
+            type = SupportedDataTypes.ResolveReferenceType(type);
 
             switch (type.ToLower())
             {

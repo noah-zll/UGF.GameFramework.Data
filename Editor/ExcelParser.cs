@@ -113,7 +113,8 @@ namespace UGF.GameFramework.Data.Editor
                 if (!SupportedDataTypes.IsSupported(fieldType) &&
                     !SupportedDataTypes.IsEnumType(fieldType) &&
                     !SupportedDataTypes.IsCollectionType(fieldType) &&
-                    !SupportedDataTypes.IsCustomType(fieldType))
+                    !SupportedDataTypes.IsCustomType(fieldType) &&
+                    !SupportedDataTypes.IsReferenceType(fieldType))
                 {
                     Debug.LogWarning($"字段 {fieldName} 的类型 {fieldType} 不支持，默认使用string类型");
                     fieldType = "string";
@@ -173,6 +174,58 @@ namespace UGF.GameFramework.Data.Editor
                     tableInfo.Rows.Add(rowData);
                 }
             }
+        }
+
+        /// <summary>
+        /// 快速预览Excel表头字段信息（只读前3行，不解析数据）
+        /// </summary>
+        /// <param name="filePath">Excel文件路径</param>
+        /// <returns>字段列表</returns>
+        public static List<ExcelFieldInfo> PreviewFields(string filePath)
+        {
+            var fields = new List<ExcelFieldInfo>();
+
+            if (!File.Exists(filePath))
+                return fields;
+
+            ExcelPackage.LicenseContext = LicenseContext.NonCommercial;
+
+            using (var package = new ExcelPackage(new FileInfo(filePath)))
+            {
+                ExcelWorksheet worksheet = null;
+                if (package.Workbook.Worksheets.Count > 0)
+                {
+                    worksheet = package.Workbook.Worksheets[0];
+                }
+
+                if (worksheet == null || worksheet.Dimension == null)
+                    return fields;
+
+                int colCount = worksheet.Dimension.Columns;
+                for (int col = 1; col <= colCount; col++)
+                {
+                    var fieldName = worksheet.Cells[1, col].Text?.Trim();
+                    if (string.IsNullOrEmpty(fieldName))
+                        continue;
+
+                    var fieldType = worksheet.Cells[2, col].Text?.Trim();
+                    if (string.IsNullOrEmpty(fieldType))
+                        fieldType = "string";
+
+                    var fieldDescription = worksheet.Cells[3, col].Text?.Trim();
+
+                    fields.Add(new ExcelFieldInfo
+                    {
+                        Name = fieldName,
+                        Type = fieldType,
+                        Description = fieldDescription,
+                        ColumnIndex = col,
+                        IsPrimaryKey = col == 1
+                    });
+                }
+            }
+
+            return fields;
         }
 
         /// <summary>

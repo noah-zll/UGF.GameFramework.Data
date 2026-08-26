@@ -97,6 +97,69 @@ UGF GameFramework Data Tools 是为原生 GameFramework 框架设计的配置表
 - 成员本身支持基础类型、枚举、数组与集合，可继续嵌套
 - 未配置类型定义文件时，自定义类型名按宽松规则视为枚举（向后兼容）
 
+### 引用类型（关系字段，@表名）
+
+在类型行写 `@表名` 直接声明对另一张表主键的引用，单元格写目标表主键值：
+
+| 字段名 | DropId | DropIds | DropCounts |
+|--------|--------|---------|------------|
+| 类型   | @Drop  | List&lt;@Drop&gt; | Dictionary&lt;@Drop,int&gt; |
+| 数据   | 3001   | [3001,3002] | {3001:2,3002:1} |
+
+- 底层按**目标表主键的基础类型**存储（int/long/string），二进制格式不变
+- 支持集合/字典/嵌套（`List<@Drop>`、`@Drop[]`、`HashSet<@Drop>`、`Dictionary<@Drop,int>` 等）
+- **生成强类型查询方法**：`@Drop` → `GetDrop()`（1:1）；集合 → `GetDrops()`（1:N）；字典引用 → `GetDrop(int key)`；方法名冲突时自动追加字段名（如 `GetDrop_DropCounts`）
+- 构建时自动收集为**隐式关系**并入 `relations.json`（与可视化编辑器显式关系共用运行时索引，同名时显式优先）
+- 构建时**引用校验**（可配置 `ValidateReferences`）：目标表存在、主键类型匹配、外键值存在于目标表主键
+- 运行时通过 `DataTableComponent` 扩展方法查询（生成代码经 `GameEntry.GetComponent<DataTableComponent>()` 访问；目标表未加载时返回 null/空数组）
+- 完整规则见 [数据表关系字段方案](数据表关系字段方案.md)
+
+### 表关系（可视化编辑与运行时查询）
+
+通过节点连线可视化定义表与表之间的关联，运行时按关系直接查询关联数据。
+
+#### 1. 打开关系编辑器
+
+点击菜单 `UGF > GameFramework > 数据表关系编辑器`：
+
+- **扫描Excel目录**：从设置中的 Excel 目录加载数据表节点（显示表名、主键与字段端口）
+- **建立关系**：从源表字段端口拖拽到目标表字段端口生成连线，选中连线在右侧面板设置关系名、类型（一对一/一对多/多对多）
+- **多对多**：需要指定中间表（JoinTable）及源外键、目标外键字段
+- **校验**：检查关系名唯一、字段类型一致、字段存在
+- **保存资产**：保存为 `TableRelationSet`（ScriptableObject）
+- **加载资产**：从 `.asset` 恢复节点布局与关系连线
+- **加载配置**：从导出的 `relations.json` 重建关系（需先「扫描Excel目录」加载表结构；连线自动布局）
+- **导出配置**：导出 `relations.json` 到设置中的关系输出目录（StreamingAssets）
+- **生成代码**：生成强类型关系访问扩展类 `DataRelationExtension`
+
+#### 2. 运行时使用
+
+直接通过 `DataTableComponent` 扩展方法查询（无需额外挂载组件）：
+
+```csharp
+var dataTableComponent = GameEntry.GetComponent<DataTableComponent>();
+
+// 一对多：获取目标表关联记录
+IDataRow[] drops = dataTableComponent.GetRelated("ItemDrops", 1001);
+
+// 一对一：获取目标表单条记录
+IDataRow profile = dataTableComponent.GetRelatedOne("PlayerProfile", 1);
+
+// 获取关联记录主键数组
+int[] dropIds = dataTableComponent.GetRelatedIds("ItemDrops", 1001);
+```
+
+生成代码后可强类型访问：
+
+```csharp
+// 由 DataRelationCodeGenerator 生成
+DRItemDrop[] drops = item.GetDrops();   // 一对多
+DRPlayerProfile profile = player.GetProfile(); // 一对一
+```
+
+- 数据表加载完成后索引自动失效并懒重建
+- 关系类型、索引策略等完整设计见 [表关系可视化编辑与运行时查询设计方案](表关系可视化编辑与运行时查询设计方案.md)
+
 ### 主键字段
 
 - 第一个字段默认为主键

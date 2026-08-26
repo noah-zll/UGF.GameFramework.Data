@@ -145,6 +145,9 @@ namespace UGF.GameFramework.Data.Editor
                     return;
                 }
 
+                // 引用类型 @表名：按目标表主键类型写入
+                type = SupportedDataTypes.ResolveReferenceType(type);
+
                 switch (type.ToLower())
                 {
                     case SupportedDataTypes.Int:
@@ -289,6 +292,9 @@ namespace UGF.GameFramework.Data.Editor
                 return;
             }
 
+            // 引用类型 @表名：按目标表主键类型写入
+            type = SupportedDataTypes.ResolveReferenceType(type);
+
             switch (type.ToLower())
             {
                 case SupportedDataTypes.Int:
@@ -352,6 +358,9 @@ namespace UGF.GameFramework.Data.Editor
                 }
                 return;
             }
+
+            // 引用类型 @表名：按目标表主键类型写默认值
+            type = SupportedDataTypes.ResolveReferenceType(type);
 
             switch (type.ToLower())
             {

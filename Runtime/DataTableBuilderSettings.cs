@@ -59,9 +59,12 @@ namespace UGF.GameFramework.Data
         [SerializeField, Tooltip("语言输出目录")]
         private string m_LanguageOutputDirectory = "Assets/StreamingAssets/Languages";
 
+        [SerializeField, Tooltip("关系配置输出目录")]
+        private string m_RelationOutputDirectory = "Assets/StreamingAssets/DataRelations";
+
         [SerializeField, Tooltip("选中的语言表（工作表名即语言名）")]
         private List<string> m_SelectedLanguageSheets = new List<string>();
-        
+
         [Header("类型和文件选择状态")]
         [SerializeField, Tooltip("选中的类型定义类型（枚举、类、结构体、常量）")]
         private List<string> m_SelectedTypeDefinitionTypes = new List<string>();
@@ -160,12 +163,21 @@ namespace UGF.GameFramework.Data
             set => m_LanguageOutputDirectory = value;
         }
 
+        /// <summary>
+        /// 关系配置输出目录
+        /// </summary>
+        public string RelationOutputDirectory
+        {
+            get => m_RelationOutputDirectory;
+            set => m_RelationOutputDirectory = value;
+        }
+
         public List<string> SelectedLanguageSheets
         {
             get => m_SelectedLanguageSheets;
             set => m_SelectedLanguageSheets = value;
         }
-        
+
         /// <summary>
         /// 选中的类型定义类型列表
         /// </summary>
@@ -286,9 +298,12 @@ namespace UGF.GameFramework.Data
             if (string.IsNullOrEmpty(m_LanguageOutputDirectory))
                 m_LanguageOutputDirectory = "Assets/StreamingAssets/Languages";
 
+            if (string.IsNullOrEmpty(m_RelationOutputDirectory))
+                m_RelationOutputDirectory = "Assets/StreamingAssets/DataRelations";
+
             if (m_SelectedLanguageSheets == null)
                 m_SelectedLanguageSheets = new List<string>();
-                
+
             // TypeDefinitionFilePath可以为空，不需要默认值
         }
 
@@ -518,7 +533,7 @@ namespace UGF.GameFramework.Data
         }
 
         #endregion
-        
+
         private void OnValidate()
         {
             ValidateSettings();

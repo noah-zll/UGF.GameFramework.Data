@@ -166,6 +166,50 @@ namespace UGF.GameFramework.Data
     }
 
     /// <summary>
+    /// 引用类型注册表（由构建流程填充：表名 → 主键类型）
+    /// 用于把 @表名 解析为目标表主键的基础类型
+    /// </summary>
+    public static class ReferenceTypeRegistry
+    {
+        private static readonly Dictionary<string, string> PrimaryKeyTypes = new Dictionary<string, string>(StringComparer.Ordinal);
+
+        /// <summary>
+        /// 清空注册表
+        /// </summary>
+        public static void Clear()
+        {
+            PrimaryKeyTypes.Clear();
+        }
+
+        /// <summary>
+        /// 注册表的主键类型（type 为基础类型写法，如 "int"）
+        /// </summary>
+        public static void Register(string tableName, string primaryKeyType)
+        {
+            if (string.IsNullOrEmpty(tableName) || string.IsNullOrEmpty(primaryKeyType))
+                return;
+
+            PrimaryKeyTypes[tableName] = primaryKeyType;
+        }
+
+        /// <summary>
+        /// 获取目标表主键类型
+        /// </summary>
+        public static bool TryGetPrimaryKeyType(string tableName, out string primaryKeyType)
+        {
+            return PrimaryKeyTypes.TryGetValue(tableName, out primaryKeyType);
+        }
+
+        /// <summary>
+        /// 是否已注册该表
+        /// </summary>
+        public static bool IsRegistered(string tableName)
+        {
+            return tableName != null && PrimaryKeyTypes.ContainsKey(tableName);
+        }
+    }
+
+    /// <summary>
     /// 集合类型描述
     /// </summary>
     public sealed class CollectionTypeDescriptor
@@ -268,6 +312,12 @@ namespace UGF.GameFramework.Data
                 return type;
             }
 
+            // 引用类型 @表名：返回目标表主键的C#类型
+            if (IsReferenceType(type))
+            {
+                return ResolveElementType(type);
+            }
+
             switch (type.ToLower())
             {
                 case Int: return "int";
@@ -310,8 +360,8 @@ namespace UGF.GameFramework.Data
             if (CustomTypeRegistry.TryGet(type, out var info))
                 return info.Kind == CustomTypeKind.Enum;
 
-            // 宽松规则（未配置注册表或未命中）：非基础、非集合、不含括号的类型名视为枚举
-            return !IsSupported(type) && !IsCollectionType(type) && !type.Contains("[") && !type.Contains("]");
+            // 宽松规则（未配置注册表或未命中）：非基础、非集合、非引用、不含括号的类型名视为枚举
+            return !IsSupported(type) && !IsCollectionType(type) && !IsReferenceType(type) && !type.Contains("[") && !type.Contains("]");
         }
 
         /// <summary>
@@ -334,13 +384,47 @@ namespace UGF.GameFramework.Data
                 return info.Kind == CustomTypeKind.Enum ? type : string.Empty;
             }
 
-            // 宽松规则：非基础、非集合、不含括号的类型名视为枚举
-            if (!IsSupported(type) && !IsCollectionType(type) && !type.Contains("[") && !type.Contains("]"))
+            // 宽松规则：非基础、非集合、非引用、不含括号的类型名视为枚举
+            if (!IsSupported(type) && !IsCollectionType(type) && !IsReferenceType(type) && !type.Contains("[") && !type.Contains("]"))
             {
                 return type;
             }
 
             return string.Empty;
+        }
+
+        /// <summary>
+        /// 是否为引用类型（@表名，如 @Drop、List&lt;@Drop&gt; 的元素类型）
+        /// </summary>
+        public static bool IsReferenceType(string type)
+        {
+            return !string.IsNullOrEmpty(type) && type.StartsWith("@", StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// 获取引用类型的目标表名（@Drop → Drop；非引用类型返回空串）
+        /// </summary>
+        public static string GetReferenceTargetTable(string type)
+        {
+            if (!IsReferenceType(type))
+                return string.Empty;
+
+            return type.Substring(1).Trim();
+        }
+
+        /// <summary>
+        /// 将引用类型 @表名 解析为目标表主键的基础类型（未注册时回退 string）
+        /// </summary>
+        public static string ResolveReferenceType(string type)
+        {
+            if (!IsReferenceType(type))
+                return type;
+
+            var targetTable = GetReferenceTargetTable(type);
+            if (ReferenceTypeRegistry.TryGetPrimaryKeyType(targetTable, out var pkType))
+                return pkType;
+
+            return String;
         }
 
         /// <summary>
@@ -507,6 +591,15 @@ namespace UGF.GameFramework.Data
         {
             if (string.IsNullOrEmpty(elementType))
                 return "string";
+
+            // 引用类型 @表名：返回目标表主键的C#类型
+            if (IsReferenceType(elementType))
+            {
+                var targetTable = GetReferenceTargetTable(elementType);
+                if (ReferenceTypeRegistry.TryGetPrimaryKeyType(targetTable, out var pkType))
+                    return GetCSharpType(pkType);
+                return "string"; // 目标表未注册：回退 string（构建期会警告）
+            }
 
             // 枚举类型（enum:EnumName 或 直接类型名）
             if (IsEnumType(elementType))

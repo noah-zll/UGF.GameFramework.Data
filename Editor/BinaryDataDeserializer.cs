@@ -190,6 +190,9 @@ namespace UGF.GameFramework.Data.Editor
                     return reader.ReadInt32(); // 枚举值作为int读取
                 }
 
+                // 引用类型 @表名：按目标表主键类型读取
+                type = SupportedDataTypes.ResolveReferenceType(type);
+
                 switch (type.ToLower())
                 {
                     case SupportedDataTypes.Int:
@@ -291,6 +294,9 @@ namespace UGF.GameFramework.Data.Editor
                 return reader.ReadInt32(); // 枚举值作为int读取
             }
 
+            // 引用类型 @表名：按目标表主键类型读取
+            type = SupportedDataTypes.ResolveReferenceType(type);
+
             switch (type.ToLower())
             {
                 case SupportedDataTypes.Int:
@@ -345,6 +351,9 @@ namespace UGF.GameFramework.Data.Editor
                 }
                 return null;
             }
+
+            // 引用类型 @表名：按目标表主键类型取默认值
+            type = SupportedDataTypes.ResolveReferenceType(type);
 
             switch (type.ToLower())
             {
